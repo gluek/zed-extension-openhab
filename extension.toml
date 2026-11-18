@@ -14,12 +14,15 @@ repository = "https://github.com/openhab/openhab-vscode"
 # `tree_sitter_openhab`. The Phase A baseline (tree-sitter-java under the key
 # `java`) is kept as a comment below for reference / rollback.
 #
-# For local development the grammar is referenced via its absolute in-repo
-# path; before publishing the extension, point `repository` at the published
-# openhab/tree-sitter-openhab repo and pin `rev` (milestone 6).
+# For local development the grammar is referenced via a local git mirror of
+# ./grammar (Zed clones the repository and checks out `rev`, so the path must
+# be a git repo whose root contains grammar.js/src — see tests/ or plan.md §11
+# for how to rebuild the mirror: .scratch/grammar-repo). Before publishing the
+# extension, point `repository` at the published openhab/tree-sitter-openhab
+# repo and update `rev` (milestone 6).
 [grammars.openhab]
-repository = "file:///home/zerotas/Projects/openhab-zed/grammar"
-rev = "da55e7fec106ac31efee704075d80d94a7d8132b"
+repository = "file:///home/zerotas/Projects/openhab-zed/.scratch/grammar-repo"
+rev = "452b9f6f9f8750343aad36f771559e8e61ddb16a"
 
 # Phase A fallback (tree-sitter-java), kept for reference:
 # [grammars.java]

@@ -7,13 +7,13 @@ Port the openHAB Visual Studio Code extension into a **Zed language extension** 
 
 The working directory for the new extension is [`zed/openhab-zed/`](zed/openhab-zed/) — scaffolded, installed as a **dev extension** and highlighting works in Zed. The existing VS Code extension is left untouched; we only *read* from it.
 
-**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B** (purpose-built grammar) is **committed as `ac16be1`** and parses all 18 real configs in `/mnt/openhab/` cleanly, but is **not yet active** — `extension.toml` still points at `tree-sitter-java`; the key flip + `.scm` rewrite are the remaining steps (§11).
+**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B** (purpose-built grammar) is **committed as `ac16be1`** and parses all 18 real configs in `/mnt/openhab/` **plus the `.sitemap` with 0 ERROR nodes** (sitemap fix in `d022b00`). Real-syntax fixtures added (`dab004f`) and **all five `languages/openhab/*.scm` queries rewritten for the new node names and validated against the openHAB grammar** (`c4dbb09`; `validate-queries.sh` 5/5 PASS, snapshots 20 ok / 0 changed). **Not yet active** — `extension.toml` still points at `tree-sitter-java`; the remaining steps are the key flip + wasm build + visual check, committed atomically (§11).
 
 **Quick reference — validation commands (run from the repo root `openhab-zed/`):**
 
 ```
-./tests/validate-queries.sh                                     # Phase A queries vs Java grammar: 5/5 PASS
-./tests/check-snapshots.sh                                      # 15 ok, 0 changed
+./tests/validate-queries.sh                                     # queries vs openHAB grammar: 5/5 PASS (OPENHAB_ZED_GRAMMAR=java for the Phase A baseline)
+./tests/check-snapshots.sh                                      # 20 ok, 0 changed
 (cd server && npm --cache ../.scratch/npm-cache test)            # LSP: 23 pass
 CARGO_HOME=$PWD/.scratch/cargo cargo build --target wasm32-wasip2 --offline   # extension wasm build
 # openHAB grammar harness (see §11 for the full env):
@@ -176,8 +176,8 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 | ✅ 1 | **Phase A highlighting** via `tree-sitter-java` | `highlights.scm`, `brackets.scm`, `indents.scm`, `outline.scm`, `textobjects.scm` | `tests/validate-queries.sh` green; captures verified on fixtures; **confirmed visually in Zed ("okayish")** |
 | 2 | **LSP packaging** | ✅ *done* — `server/` ships a bundled Node server; stdio; `initializationOptions` + `workspace/configuration` | 23 tests green, incl. end-to-end against a fake openHAB; response verified over stdio |
 | 3 | **LSP completion polish** | ✅ *done with 2* — context-aware completion, type/state docs, auth | Unit + integration tests (`server/test/`) |
-| 4 | **Phase B grammar** | ✅ *committed `ac16be1`* — `grammar/` parses all 18 real `/mnt/openhab` files with 0 ERROR (`.sitemap` polish deferred) | `tree-sitter parse` clean on real files; harness in `tests/harness` |
-| 5 | **Phase B switch** (query rewrite + key flip + re-baseline) | `languages/openhab/*.scm` for new node names; `extension.toml` `[grammars.openhab]`; `config.toml` `grammar = "openhab"`; fresh snapshots | `validate-queries.sh` + `check-snapshots.sh` + wasm build green; visual check in Zed (§11 steps 3–7) |
+| 4 | **Phase B grammar** | ✅ *committed `ac16be1`* — `grammar/` parses all 18 real `/mnt/openhab` files with 0 ERROR; `.sitemap` ERRORs fixed in `d022b00` (home.sitemap now 0 ERROR) | `tree-sitter parse` clean on real files; harness in `tests/harness` |
+| 5 | **Phase B switch** | 🟨 *partly done* — fixtures (`dab004f`) + `.scm` rewrite for new node names (`c4dbb09`, validated: 5/5 queries, 20/20 snapshots) are committed; remaining: `extension.toml` `[grammars.openhab]` key flip + `config.toml` `grammar = "openhab"` + wasm build | `validate-queries.sh` + `check-snapshots.sh` + wasm build green; visual check in Zed (§11 remaining steps) |
 | 6 | Docs + release | `zed/README.md`, CI to build Rust target matrix, grammar rev pin | CI green |
 
 ### Current known limitations (Phase A)
@@ -387,6 +387,34 @@ nothing regenerated `tests/reports/`.
 `:Temperature` stays `@variable`; rule headers are not outlined in most files. All
 three are Phase B items, not Phase A regressions.
 
+### 2026-11-18 — Phase B activated in the test harness (fixtures + queries + sitemap)
+
+- `dab004f` — five `tests/fixtures/*-real.*` files sourced from the real
+  `/mnt/openhab` configs (aggregation functions, `Member of(…)`,
+  `received command`, `changed from/to`, `Type number : temperature`, bridge
+  body on next line, `[| … ]` lambdas, `Thread::sleep(…)`, `var Timer x`,
+  `(x as T).m()`, single-quoted strings, `Location [ latitude=… ]`, persist
+  wildcards/`default`). All parse with **0 ERROR** under the openHAB grammar.
+  Probing during fixture authoring surfaced grammar quirks now documented in
+  §11: `Member of` needs the parenthesized form, and `x = createTimer(…,
+  [| … ])` as a bare assignment trips the known cosmetic `MISSING ";"`
+  (`val t = createTimer(…)` is clean).
+- `d022b00` — `.sitemap` fix (see §11 "Sitemap fix"): `home.sitemap` now
+  **0 ERROR** (was 9). Root cause: `frame_word` was only consumable by
+  `sitemap_frame` (which requires a body), so a bare `Text item=…` sibling
+  had no production. `sitemap_widget` now accepts `frame_word` too, plus the
+  `[sitemap_frame, sitemap_widget]` conflict and reordering in
+  `_oh_declaration`.
+- `c4dbb09` — all five `languages/openhab/*.scm` rewritten for the new node
+  names and validated with the openHAB harness **before** any flip:
+  `validate-queries.sh` 5/5 PASS, snapshots regenerated 20 ok / 0 changed,
+  capture reports regenerated (100 files). Test scripts default to the openHAB
+  grammar now (`OPENHAB_ZED_GRAMMAR=java` selects the Phase A baseline).
+  Gotchas re-confirmed: predicates on alternations are silently ignored
+  (outline rules attach `#match?`/`#not-match?` to the single
+  `sitemap_widget_type` capture); anonymous keyword tokens (`or`/`and`) cannot
+  be captured under `trigger_condition` and are matched as bare `"or" @keyword`.
+
 ---
 
 ## 10. Language server implementation (milestones 2 + 3)
@@ -461,10 +489,10 @@ deliberately a separate, atomic commit.
 - Fork point: regenerating the **unmodified** copy reproduces
   `grammars/java/src/parser.c` byte-identically, matching the `rev` pinned in
   `extension.toml`.
-- **All 18 real configs in `/mnt/openhab/` (items/rules/things) parse with
-  0 ERROR nodes and 1 cosmetic `MISSING ";"`** (a bare `wakeupTimer = null`
-  inside a `[| … ]` lambda body). `.sitemap` still has ERRORs — **deferred by
-  decision** (see Remaining work).
+- **All 18 real configs in `/mnt/openhab/` (items/rules/things/sitemap) parse
+  with 0 ERROR nodes and 1 cosmetic `MISSING ";"`** (a bare `wakeupTimer = null`
+  assigned directly inside a `createTimer(…, [| … ])` call). `.sitemap` was
+  fixed in `d022b00` (see "Sitemap fix" below).
 - `tests/harness` is grammar-agnostic: `OPENHAB_ZED_GRAMMAR=<name>` +
   `<NAME>_GRAMMAR` (path to a `src/` dir) + `<NAME>_SYMBOL` select the parser,
   via a `build.rs`-generated symbol shim. Two builds coexist:
@@ -546,34 +574,76 @@ the `:` chain cannot be read as a Java labeled statement.
   use the `.scratch` paths.
 - Git writes need `unsandboxed: true` on the terminal call.
 
+### Sitemap fix (committed `d022b00`)
+
+The deferred `.sitemap` gap (9 ERRORs in `home.sitemap`) is **fixed**: a bare
+`Text item=X label="…"` line inside a Frame had no valid production because
+`frame_word` (`Frame`/`Text`) was only consumed by `sitemap_frame`, which
+requires a `{ … }` body. Changes:
+
+- `sitemap_widget` now accepts `choice($.dsl_type_word, $.frame_word)` as its
+  widget token, so a bare `Text`/`Frame` line is a widget in any position.
+- New conflict `[$.sitemap_frame, $.sitemap_widget]` (required by
+  `tree-sitter generate` for the `frame_word … sitemap_body` ambiguity).
+- `_oh_declaration` tries `sitemap_widget`/`sitemap_frame` before
+  `item_definition` so a widget-shaped line wins over the item reading.
+
+Result: `home.sitemap` and `sitemap-real.sitemap` parse with **0 ERROR nodes**.
+Known remaining limitation (documented in the commit): a widget line whose
+first attribute is not `item=`/`label=`/`icon=` (e.g. `Webview url="…"`) still
+mis-parses as `item_definition` (`url` is a valid item name and the parser
+commits before seeing `="…"`). No active line in the real `home.sitemap` hits
+this (the `Webview url=…` lines there are commented out).
+
+### Query rewrite (committed `c4dbb09`)
+
+All five `languages/openhab/*.scm` files were rewritten for the new node names
+and validated with the openHAB harness (`--compile` + `--captures` on all
+fixtures) BEFORE the key flip, per the §9 gotchas:
+
+- `highlights.scm` — DSL keywords are real tokens now (`rule`/`when`/`then`/
+  `end`, trigger vocabulary, `val`/`var`, `as`); item types → `item_type_base`
+  `@type.builtin`; sitemap widgets → `sitemap_widget_type`; config keys →
+  `@property`; `ON`/`OFF`/`NULL`/`UNDEF` still via one content match on
+  `identifier`; `->`/`::` → `@operator`. Anonymous keyword tokens (`or`/`and`)
+  can't be captured under `trigger_condition` — matched as bare `"or" @keyword`.
+- `outline.scm` — `rule_declaration` by name string; only `Group` items
+  outlined; things/channels by uid/id; sitemap by name/label with widget type
+  as `@context` (predicates attached to the single `sitemap_widget_type`
+  capture, since predicates on alternations are silently ignored).
+- `indents.scm` — `@indent`/`@end` for `rule_body`, `sitemap_body`,
+  `bridge_body`, `thing_body`, `item_metadata`, `metadata_block`.
+- `textobjects.scm` — DSL bodies `@function.around`, declarations `@class.around`.
+- `brackets.scm` — unchanged.
+
+`tests/{validate-queries,update-snapshots,check-snapshots,report-captures}.sh`
+now default to the openHAB harness and accept `OPENHAB_ZED_GRAMMAR=java` for the
+Phase A baseline. Snapshots regenerated with the openHAB grammar:
+**20 ok, 0 changed**; `validate-queries.sh` **5/5 PASS**.
+
 ### Remaining work
 
-1. ~~Grammar parses real configs~~ ✅ done (except `.sitemap`, deferred).
-2. **`.sitemap` polish** (deferred): `Text`/`Frame` after attributes still
-   ERRORs in `home.sitemap` (9 errors). Decide: fix `sitemap_frame` ordering
-   or accept and document.
-3. **Extend `tests/fixtures/`** from the real syntax the synthetic ones lack:
+1. ~~Grammar parses real configs~~ ✅ done (`ac16be1`).
+2. ~~`.sitemap` polish~~ ✅ done (`d022b00`) — `home.sitemap` 0 ERROR.
+3. ~~Extend `tests/fixtures/`~~ ✅ done (`dab004f`) — `*-real.*` fixtures cover
    `Group:Contact:OR(OPEN, CLOSED)`, `Member of(…)`, `received command`,
    `changed from X to Y`, `Type number : temperature`, bridge body on next
-   line, `[| … ]` lambda, `Thread::sleep(…)` chains, `var Timer x`,
-   `(x as T).m()`, `'single-quoted'`, `Location … [ latitude=… ]`.
-4. **Rewrite `languages/openhab/*.scm` for the new node names** — the current
-   queries target Java node types and will silently stop matching once the
-   grammar key flips. Validate each with the openHAB harness
-   (`--captures <q.scm> <fixtures>`) BEFORE flipping. Remember the §9
-   gotchas: no anchor between sibling patterns, predicates only on single
-   node patterns and after all child patterns.
+   line, `[| … ]` lambdas, `Thread::sleep(…)`, `var Timer x`, `(x as T).m()`,
+   `'single-quoted'`, `Location … [ latitude=… ]`.
+4. ~~Rewrite `languages/openhab/*.scm` for the new node names~~ ✅ done
+   (`c4dbb09`, validated 5/5 + 20/20 before flipping).
 5. **Flip `extension.toml` to `[grammars.openhab]`** (key must be `openhab` so
-   the exported symbol is `tree_sitter_openhab`) and `config.toml`'s
-   `grammar = "openhab"`.
-6. **Re-baseline**: regenerate `tests/trees/` snapshots with the openHAB
-   grammar, run `tests/validate-queries.sh` + `tests/check-snapshots.sh`,
-   verify `cargo build --target wasm32-wasip2 --offline` (with
-   `CARGO_HOME=.scratch/cargo`) is still clean.
-7. Commit (4)+(5)+(6) atomically as "Phase B switch".
+   the exported symbol is `tree_sitter_openhab`; point `repository` at the
+   published `openhab/tree-sitter-openhab` rev — milestone 6 publishes it) and
+   `config.toml`'s `grammar = "openhab"`.
+6. **Re-verify**: `tests/validate-queries.sh` + `tests/check-snapshots.sh`
+   (already green against the openHAB grammar), verify
+   `CARGO_HOME=.scratch/cargo cargo build --target wasm32-wasip2 --offline`
+   is still clean, then **visual check in Zed** (dev-extension flow).
+7. Commit (5)+(6) atomically as "Phase B switch".
 
 ### Fallback
 
 Phase A stays shippable on its own. The switch is two lines (`extension.toml`
 grammar key + `config.toml` `grammar`), so Phase B can land in one commit once
-(4)–(6) are done — or be dropped without affecting the released extension.
+(5)–(6) are done — or be dropped without affecting the released extension.

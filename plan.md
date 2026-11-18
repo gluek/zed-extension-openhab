@@ -7,7 +7,7 @@ Port the openHAB Visual Studio Code extension into a **Zed language extension** 
 
 The working directory for the new extension is [`zed/openhab-zed/`](zed/openhab-zed/) — scaffolded, installed as a **dev extension** and highlighting works in Zed. The existing VS Code extension is left untouched; we only *read* from it.
 
-**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10).
+**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B** (a purpose-built grammar) is **in progress and not committed** — `extension.toml` still points at `tree-sitter-java`, so nothing below affects the shipped extension (§11).
 
 ---
 
@@ -69,7 +69,7 @@ zed/openhab-zed/
 - **Pros:** zero grammar authoring, good highlighting, indentation/bracket queries come nearly free.
 - **Cons:** DSL-specific constructs (`Item Kitchen_Light "Label" <icon> (Group) ["tag"] { channel="..." }`, `when ... then ... end`, `<` → `>` sitemap syntax) won't be uniquely highlighted.
 
-**Phase B — replace with a purpose-built `tree-sitter-openhab` grammar.** *(not started; milestone 4)*
+**Phase B — replace with a purpose-built `tree-sitter-openhab` grammar.** *(in progress; milestone 4 — see §11)*
 - Author a grammar that handles the four DSL dialects. Recommended approach: **fork `tree-sitter-java`** and add external/DSL productions, rather than starting from scratch.
   - `.items` / `.persist`: line-oriented, easy.
   - `.things`: combine with `tree-sitter-openhab-thing` ideas (Bridge/Thing/Channel/UUID blocks).
@@ -164,7 +164,7 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 | ✅ 1 | **Phase A highlighting** via `tree-sitter-java` | `highlights.scm`, `brackets.scm`, `indents.scm`, `outline.scm`, `textobjects.scm` | `tests/validate-queries.sh` green; captures verified on fixtures; **confirmed visually in Zed ("okayish")** |
 | 2 | **LSP packaging** | ✅ *done* — `server/` ships a bundled Node server; stdio; `initializationOptions` + `workspace/configuration` | 23 tests green, incl. end-to-end against a fake openHAB; response verified over stdio |
 | 3 | **LSP completion polish** | ✅ *done with 2* — context-aware completion, type/state docs, auth | Unit + integration tests (`server/test/`) |
-| 4 | **Phase B grammar** | `tree-sitter-openhab` with DSL productions; swap grammar key + `config.toml` | `tree-sitter parse` clean on fixtures; visual parity vs Phase A |
+| 4 | **Phase B grammar** | ⚠️ *in progress* — `grammar/` fork generates; `.items` clauses still mis-parse (§11) | `tree-sitter parse` clean on fixtures; visual parity vs Phase A |
 | 5 | Docs + release | `zed/README.md`, CI to build Rust target matrix, grammar rev pin | CI green |
 
 ### Current known limitations (Phase A)
@@ -433,3 +433,90 @@ no `node_modules` in the shipped artifact. Verified self-contained: with
 - **No `persist` completion.** `.persist` files do take item names inside
   `Items { }`, but per-line detection was too false-positive-prone; left out.
 - **`itemCasing`-style features** (generating names from channels) remain absent.
+
+---
+
+## 11. Phase B — purpose-built grammar (milestone 4, IN PROGRESS)
+
+Fork of `tree-sitter-java` in `grammar/`, adding the openHAB DSLs. Nothing is
+committed yet and **Phase A remains active** — `extension.toml` still points at
+`tree-sitter-java`, so the editor is unaffected by the work below.
+
+### Verified so far
+
+- `grammar/grammar.js` is a copy of the pinned `tree-sitter-java` `grammar.js`
+  with `name: 'openhab'`. Regenerating the **unmodified** copy reproduces
+  `grammars/java/src/parser.c` byte-identically (`cmp` clean), which proves the
+  fork point matches the `rev` pinned in `extension.toml`.
+- `tree-sitter generate` succeeds. Node types produced for `.items`
+  (`item_definition`, `item_type`, `item_icon`, `group_list`, `tag_list`,
+  `item_metadata`), `.rules` (`rule_declaration`, `rule_body`,
+  `trigger_condition`), `.things`, `.sitemap` and `.persist` are all declared.
+- `tests/harness` is now grammar-agnostic: `OPENHAB_ZED_GRAMMAR=<name>` plus
+  `<NAME>_GRAMMAR` (path to a `src/` dir) and `<NAME>_SYMBOL` select which
+  grammar to compile, via a `build.rs`-generated symbol shim. Two builds coexist:
+  `tests/harness/target` (Java) and a scratch `CARGO_TARGET_DIR` (openHAB).
+
+### Currently blocked
+
+**`.items` definitions end after the item name.** For
+`Switch A "L" <light> (g1) ["T"]` the parser emits an `item_definition` with
+`type` + `name`, then falls back to Java and re-parses `"L" <light> (g1)` as a
+`binary_expression`/`array_access`. Adding `prec(1, …)` to `item_definition`,
+regenerating and rebuilding **did not change the tree**, so the precedence
+theory is unconfirmed — the next step is to determine why the item rule is not
+preferred (likely the label clause competing with Java's
+`local_variable_declaration`/`expression_statement` starts).
+
+Single-clause forms (`Switch A <light>`) do parse correctly, so the clause
+grammar itself is sound.
+
+### Grammar decisions worth keeping
+
+- **Shared type words.** `.items` item types and `.sitemap` widget types use
+  the same tokens (`Dimmer`, `Switch`, `Group`, …). They cannot be
+  distinguished lexically, so both use one `dsl_type_word` aliased per context
+  (`item_type_base`, `sitemap_widget_type`), with a declared
+  `[$.item_type, $.sitemap_widget]` conflict and per-file disambiguation. A file
+  contains exactly one dialect, so this is safe in practice.
+- **`Frame`/`Text` are separate** from `dsl_type_word` so they never compete
+  with item types.
+- **`end` is a keyword only in statement position**, so identifiers named `end`
+  inside expressions keep working.
+- **`.persist` splits by section** (`persist_strategies_section` vs
+  `persist_items_section`) because the two blocks contain structurally different
+  entries.
+- **Single-quoted strings** are added (`_oh_string`) — openHAB accepts them in
+  rule bodies and sitemaps, unlike Java.
+- **`repeat1(choice(...))` does not work** for the item tail: each clause is a
+  distinct node type, so the parser stops after the first match. Use an explicit
+  optional sequence in openHAB's fixed order instead. This applies to sitemap
+  attributes too (flattened into one `repeat(choice(...))`).
+
+### Environment notes
+
+- tree-sitter CLI is **not** installed system-wide; a local 0.24.7 binary lives
+  in `.scratch/ts-cli/` (gitignored). The npm install script could not download
+  it (the proxy turned the release URL into a 299-byte text body), so the
+  binary was fetched directly from the GitHub release.
+- `tree-sitter build` fails inside the sandbox (`Read-only file system` for its
+  cache); compilation instead goes through `tests/harness`'s `cc` build, which
+  works from a scratch `CARGO_TARGET_DIR`.
+
+### Remaining work
+
+1. Fix the `.items` precedence problem above.
+2. Re-validate every dialect by parsing the **19 real configs in `/mnt/openhab/`**
+   (they use syntax the synthetic fixtures lack: `mappings=["ON"="Aus"]`, bare
+   `Frame {`, `received update`, `Type number : temperature`).
+3. Rewrite `languages/openhab/*.scm` for the new node names — the current
+   queries all target Java node types and will silently stop matching.
+4. Flip `extension.toml` to `[grammars.openhab]` (key must be `openhab` so the
+   exported symbol is `tree_sitter_openhab`) and `config.toml`'s `grammar`.
+5. Extend `tests/fixtures/` from the real configs; re-baseline snapshots.
+
+### Fallback
+
+Phase A stays shippable on its own. The switch is two lines (`extension.toml`
+grammar key + `config.toml` `grammar`), so Phase B can land in one commit once
+(3) and (4) are done — or be dropped without affecting the released extension.

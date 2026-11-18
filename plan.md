@@ -7,7 +7,19 @@ Port the openHAB Visual Studio Code extension into a **Zed language extension** 
 
 The working directory for the new extension is [`zed/openhab-zed/`](zed/openhab-zed/) — scaffolded, installed as a **dev extension** and highlighting works in Zed. The existing VS Code extension is left untouched; we only *read* from it.
 
-**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B** (a purpose-built grammar) is **in progress and not committed** — `extension.toml` still points at `tree-sitter-java`, so nothing below affects the shipped extension (§11).
+**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B** (purpose-built grammar) is **committed as `ac16be1`** and parses all 18 real configs in `/mnt/openhab/` cleanly, but is **not yet active** — `extension.toml` still points at `tree-sitter-java`; the key flip + `.scm` rewrite are the remaining steps (§11).
+
+**Quick reference — validation commands (run from the repo root `openhab-zed/`):**
+
+```
+./tests/validate-queries.sh                                     # Phase A queries vs Java grammar: 5/5 PASS
+./tests/check-snapshots.sh                                      # 15 ok, 0 changed
+(cd server && npm --cache ../.scratch/npm-cache test)            # LSP: 23 pass
+CARGO_HOME=$PWD/.scratch/cargo cargo build --target wasm32-wasip2 --offline   # extension wasm build
+# openHAB grammar harness (see §11 for the full env):
+cd tests/harness && CARGO_HOME=../../.scratch/cargo CARGO_TARGET_DIR=../../.scratch/target-openhab \
+  OPENHAB_ZED_GRAMMAR=openhab OPENHAB_GRAMMAR=$PWD/../../grammar/src cargo build --offline
+```
 
 ---
 
@@ -164,8 +176,9 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 | ✅ 1 | **Phase A highlighting** via `tree-sitter-java` | `highlights.scm`, `brackets.scm`, `indents.scm`, `outline.scm`, `textobjects.scm` | `tests/validate-queries.sh` green; captures verified on fixtures; **confirmed visually in Zed ("okayish")** |
 | 2 | **LSP packaging** | ✅ *done* — `server/` ships a bundled Node server; stdio; `initializationOptions` + `workspace/configuration` | 23 tests green, incl. end-to-end against a fake openHAB; response verified over stdio |
 | 3 | **LSP completion polish** | ✅ *done with 2* — context-aware completion, type/state docs, auth | Unit + integration tests (`server/test/`) |
-| 4 | **Phase B grammar** | ⚠️ *in progress* — `grammar/` fork generates; `.items` clauses still mis-parse (§11) | `tree-sitter parse` clean on fixtures; visual parity vs Phase A |
-| 5 | Docs + release | `zed/README.md`, CI to build Rust target matrix, grammar rev pin | CI green |
+| 4 | **Phase B grammar** | ✅ *committed `ac16be1`* — `grammar/` parses all 18 real `/mnt/openhab` files with 0 ERROR (`.sitemap` polish deferred) | `tree-sitter parse` clean on real files; harness in `tests/harness` |
+| 5 | **Phase B switch** (query rewrite + key flip + re-baseline) | `languages/openhab/*.scm` for new node names; `extension.toml` `[grammars.openhab]`; `config.toml` `grammar = "openhab"`; fresh snapshots | `validate-queries.sh` + `check-snapshots.sh` + wasm build green; visual check in Zed (§11 steps 3–7) |
+| 6 | Docs + release | `zed/README.md`, CI to build Rust target matrix, grammar rev pin | CI green |
 
 ### Current known limitations (Phase A)
 
@@ -436,87 +449,131 @@ no `node_modules` in the shipped artifact. Verified self-contained: with
 
 ---
 
-## 11. Phase B — purpose-built grammar (milestone 4, IN PROGRESS)
+## 11. Phase B — purpose-built grammar (milestone 4, COMMITTED as `ac16be1`)
 
-Fork of `tree-sitter-java` in `grammar/`, adding the openHAB DSLs. Nothing is
-committed yet and **Phase A remains active** — `extension.toml` still points at
-`tree-sitter-java`, so the editor is unaffected by the work below.
+Fork of `tree-sitter-java` in `grammar/` (`name: 'openhab'`, exports
+`tree_sitter_openhab`), covering all five openHAB dialects. **Phase A remains
+active** — `extension.toml` still points at `tree-sitter-java`; the flip is
+deliberately a separate, atomic commit.
 
-### Verified so far
+### Verified
 
-- `grammar/grammar.js` is a copy of the pinned `tree-sitter-java` `grammar.js`
-  with `name: 'openhab'`. Regenerating the **unmodified** copy reproduces
-  `grammars/java/src/parser.c` byte-identically (`cmp` clean), which proves the
-  fork point matches the `rev` pinned in `extension.toml`.
-- `tree-sitter generate` succeeds. Node types produced for `.items`
-  (`item_definition`, `item_type`, `item_icon`, `group_list`, `tag_list`,
-  `item_metadata`), `.rules` (`rule_declaration`, `rule_body`,
-  `trigger_condition`), `.things`, `.sitemap` and `.persist` are all declared.
-- `tests/harness` is now grammar-agnostic: `OPENHAB_ZED_GRAMMAR=<name>` plus
-  `<NAME>_GRAMMAR` (path to a `src/` dir) and `<NAME>_SYMBOL` select which
-  grammar to compile, via a `build.rs`-generated symbol shim. Two builds coexist:
-  `tests/harness/target` (Java) and a scratch `CARGO_TARGET_DIR` (openHAB).
+- Fork point: regenerating the **unmodified** copy reproduces
+  `grammars/java/src/parser.c` byte-identically, matching the `rev` pinned in
+  `extension.toml`.
+- **All 18 real configs in `/mnt/openhab/` (items/rules/things) parse with
+  0 ERROR nodes and 1 cosmetic `MISSING ";"`** (a bare `wakeupTimer = null`
+  inside a `[| … ]` lambda body). `.sitemap` still has ERRORs — **deferred by
+  decision** (see Remaining work).
+- `tests/harness` is grammar-agnostic: `OPENHAB_ZED_GRAMMAR=<name>` +
+  `<NAME>_GRAMMAR` (path to a `src/` dir) + `<NAME>_SYMBOL` select the parser,
+  via a `build.rs`-generated symbol shim. Two builds coexist:
+  `tests/harness/target` (Java) and `.scratch/target-openhab` (openHAB).
+  Build the openHAB variant with:
+  ```
+  cd tests/harness && CARGO_HOME=../../.scratch/cargo \
+    CARGO_TARGET_DIR=../../.scratch/target-openhab \
+    OPENHAB_ZED_GRAMMAR=openhab OPENHAB_GRAMMAR=$PWD/../../grammar/src \
+    cargo build --offline
+  ```
+  (If the binary looks stale after regenerating `parser.c`, `rm -rf` the
+  target dir — cargo's `rerun-if-changed` does not always fire here.)
+- Parse the real files either via the harness binary or the CLI:
+  `XDG_CACHE_HOME=.scratch/xdg CARGO_HOME=.scratch/cargo .scratch/ts-cli/node_modules/tree-sitter-cli/tree-sitter parse <file>`
+  run from `grammar/`. Regenerate after editing `grammar/grammar.js` with
+  `tree-sitter generate` (same env). `/tmp` is wiped between terminal calls —
+  keep probes in `.scratch/probes/`.
 
-### Currently blocked
+### Root cause of the old `.items` blocker (solved)
 
-**`.items` definitions end after the item name.** For
-`Switch A "L" <light> (g1) ["T"]` the parser emits an `item_definition` with
-`type` + `name`, then falls back to Java and re-parses `"L" <light> (g1)` as a
-`binary_expression`/`array_access`. Adding `prec(1, …)` to `item_definition`,
-regenerating and rebuilding **did not change the tree**, so the precedence
-theory is unconfirmed — the next step is to determine why the item rule is not
-preferred (likely the label clause competing with Java's
-`local_variable_declaration`/`expression_statement` starts).
+The mis-parse (`Switch A "L" <light> …` stopping after the name) was **not a
+precedence problem** — `prec()` changes did nothing. It was **parse-state
+forking**: after `Switch A` the parser had already committed to
+`item_definition` in one version and to a Java statement in another, and the
+label `"L"` had no valid continuation in the first. Solved by **declaring
+conflicts** so both versions are explored until the label arrives:
+`[$.item_definition, $.statement]`, `[$.item_type, $.sitemap_widget]`, plus
+`[$.item_type, $.labeled_statement]` and friends. `Group:Number:AVG` needed
+one more step: a dedicated `aggregation_word` token (`AVG`/`OR`/`SUM`/…) so
+the `:` chain cannot be read as a Java labeled statement.
 
-Single-clause forms (`Switch A <light>`) do parse correctly, so the clause
-grammar itself is sound.
+### Grammar constructs added from the real configs
+
+- `.items`: fixed-order clauses (label, icon, groups, tags, `location_config`
+  for `Location … [ latitude=… ]`, metadata); `aggregation_word` sub-segments;
+  `aggregation_function` for `OR(OPEN, CLOSED)`.
+- `.rules`/`.script`: `rule_declaration` + `trigger_condition`
+  (`Item`/`Thing`/`System`/`Time`/`Channel`/`Member of`, `received command`,
+  `changed from X to Y`); `[| … ]` lambdas as `oh_lambda` — **single-token
+  `[|` opener and the second `|` belongs to the optional parameter group**
+  (`[| body ]` has one pipe; `[| params | body ]` has two); semicolon-less
+  statements `oh_call_statement` / `oh_field_call_statement` /
+  `oh_method_call_statement`; `oh_var_declaration` (`val`/`var`, optional type
+  word, no `;`); `oh_as_cast` (`(x as T)` as a primary, chains `.method()`);
+  `single_quoted_string` as a full literal (not `character_literal`);
+  `oh_map_entry` (`"k" -> "v"`) in argument lists.
+- `.things`: `thing_uid` with colon- or space-separated segments and `-` in
+  the final segment (`poweroutletA-control`); `bridge_body` for the `{ … }`
+  block after a Bridge header; `channel_section` with unit-suffixed channel
+  types (`Type number : temperature`).
+- `.persist`: newline-separated (not comma) entries in both sections;
+  `default = "…"` alias in Strategies.
 
 ### Grammar decisions worth keeping
 
 - **Shared type words.** `.items` item types and `.sitemap` widget types use
-  the same tokens (`Dimmer`, `Switch`, `Group`, …). They cannot be
-  distinguished lexically, so both use one `dsl_type_word` aliased per context
-  (`item_type_base`, `sitemap_widget_type`), with a declared
-  `[$.item_type, $.sitemap_widget]` conflict and per-file disambiguation. A file
-  contains exactly one dialect, so this is safe in practice.
-- **`Frame`/`Text` are separate** from `dsl_type_word` so they never compete
-  with item types.
-- **`end` is a keyword only in statement position**, so identifiers named `end`
-  inside expressions keep working.
+  the same tokens; one `dsl_type_word` aliased per context
+  (`item_type_base` / `sitemap_widget_type`) with `[$.item_type, $.sitemap_widget]`.
+- **`Frame`/`Text` are separate** (`frame_word`) so they never compete with
+  item types.
+- **`end` is a keyword only in statement position.**
 - **`.persist` splits by section** (`persist_strategies_section` vs
-  `persist_items_section`) because the two blocks contain structurally different
-  entries.
-- **Single-quoted strings** are added (`_oh_string`) — openHAB accepts them in
-  rule bodies and sitemaps, unlike Java.
-- **`repeat1(choice(...))` does not work** for the item tail: each clause is a
-  distinct node type, so the parser stops after the first match. Use an explicit
-  optional sequence in openHAB's fixed order instead. This applies to sitemap
-  attributes too (flattened into one `repeat(choice(...))`).
+  `persist_items_section`).
+- **`repeat1(choice(...))` does not work** for the item tail (each clause is a
+  distinct node) — use the explicit optional sequence in openHAB's fixed order.
+- **The `conflicts:` list in `grammar.js` is long on purpose.** Many entries
+  are reported "unnecessary" by `tree-sitter generate`, but removing any one
+  re-triggers an "Unresolved conflict" at that exact parse state. Do not prune.
 
 ### Environment notes
 
-- tree-sitter CLI is **not** installed system-wide; a local 0.24.7 binary lives
-  in `.scratch/ts-cli/` (gitignored). The npm install script could not download
-  it (the proxy turned the release URL into a 299-byte text body), so the
-  binary was fetched directly from the GitHub release.
-- `tree-sitter build` fails inside the sandbox (`Read-only file system` for its
-  cache); compilation instead goes through `tests/harness`'s `cc` build, which
-  works from a scratch `CARGO_TARGET_DIR`.
+- tree-sitter CLI 0.24.7 lives at `.scratch/ts-cli/node_modules/tree-sitter-cli/tree-sitter`
+  (gitignored; fetched from the GitHub release because the npm script's
+  download was mangled by the proxy). Run it with `XDG_CACHE_HOME=.scratch/xdg`
+  and `CARGO_HOME=.scratch/cargo`.
+- `tree-sitter build` fails in-sandbox (read-only cache); compile via the
+  harness's `cc` build instead. `~/.cargo` and `~/.npm` are read-only — always
+  use the `.scratch` paths.
+- Git writes need `unsandboxed: true` on the terminal call.
 
 ### Remaining work
 
-1. Fix the `.items` precedence problem above.
-2. Re-validate every dialect by parsing the **19 real configs in `/mnt/openhab/`**
-   (they use syntax the synthetic fixtures lack: `mappings=["ON"="Aus"]`, bare
-   `Frame {`, `received update`, `Type number : temperature`).
-3. Rewrite `languages/openhab/*.scm` for the new node names — the current
-   queries all target Java node types and will silently stop matching.
-4. Flip `extension.toml` to `[grammars.openhab]` (key must be `openhab` so the
-   exported symbol is `tree_sitter_openhab`) and `config.toml`'s `grammar`.
-5. Extend `tests/fixtures/` from the real configs; re-baseline snapshots.
+1. ~~Grammar parses real configs~~ ✅ done (except `.sitemap`, deferred).
+2. **`.sitemap` polish** (deferred): `Text`/`Frame` after attributes still
+   ERRORs in `home.sitemap` (9 errors). Decide: fix `sitemap_frame` ordering
+   or accept and document.
+3. **Extend `tests/fixtures/`** from the real syntax the synthetic ones lack:
+   `Group:Contact:OR(OPEN, CLOSED)`, `Member of(…)`, `received command`,
+   `changed from X to Y`, `Type number : temperature`, bridge body on next
+   line, `[| … ]` lambda, `Thread::sleep(…)` chains, `var Timer x`,
+   `(x as T).m()`, `'single-quoted'`, `Location … [ latitude=… ]`.
+4. **Rewrite `languages/openhab/*.scm` for the new node names** — the current
+   queries target Java node types and will silently stop matching once the
+   grammar key flips. Validate each with the openHAB harness
+   (`--captures <q.scm> <fixtures>`) BEFORE flipping. Remember the §9
+   gotchas: no anchor between sibling patterns, predicates only on single
+   node patterns and after all child patterns.
+5. **Flip `extension.toml` to `[grammars.openhab]`** (key must be `openhab` so
+   the exported symbol is `tree_sitter_openhab`) and `config.toml`'s
+   `grammar = "openhab"`.
+6. **Re-baseline**: regenerate `tests/trees/` snapshots with the openHAB
+   grammar, run `tests/validate-queries.sh` + `tests/check-snapshots.sh`,
+   verify `cargo build --target wasm32-wasip2 --offline` (with
+   `CARGO_HOME=.scratch/cargo`) is still clean.
+7. Commit (4)+(5)+(6) atomically as "Phase B switch".
 
 ### Fallback
 
 Phase A stays shippable on its own. The switch is two lines (`extension.toml`
 grammar key + `config.toml` `grammar`), so Phase B can land in one commit once
-(3) and (4) are done — or be dropped without affecting the released extension.
+(4)–(6) are done — or be dropped without affecting the released extension.

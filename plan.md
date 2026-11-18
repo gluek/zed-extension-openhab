@@ -7,7 +7,7 @@ Port the openHAB Visual Studio Code extension into a **Zed language extension** 
 
 The working directory for the new extension is [`zed/openhab-zed/`](zed/openhab-zed/) — scaffolded, installed as a **dev extension** and highlighting works in Zed. The existing VS Code extension is left untouched; we only *read* from it.
 
-**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**. The query files were then **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). Auto-complete is **not implemented yet** — the language server is registered but no server bundle ships, so it does not start (see §7).
+**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10).
 
 ---
 
@@ -143,8 +143,8 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
    - **(a)** Ship `server/LSPServer.js` + `node_modules` inside the extension, or fetch them into the work dir on first run (`zed::download_file`).
    - **(b)** Rewrite the server in Rust (later; larger effort, better startup).
    - Pick **(a)** for v1. During development the extension reads the sibling `../serverJS/out/LSPServer.js` from this repo.
-   - **Implemented so far:** `src/openhab.rs` resolves `zed::node_binary_path()` + the server script (checking `server/LSPServer.js`, then `../serverJS/out/LSPServer.js`), passes `--stdio`, and supplies `initialization_options` / `workspace/configuration` with defaults (`host`, `port`, `authToken`, `itemCasing`, `lspEnabled`). It returns a clear error when the bundle is absent — which is the current state.
-6. **Robustness:** if the server bundle is missing or openHAB is unreachable, `language_server_command` / the server must fail gracefully (log, no crash) — Zed surfaces the error in its log.
+   - **Implemented:** `src/openhab.rs` resolves `zed::node_binary_path()` + `server/openhab-language-server.js`, passes `--stdio`, and supplies `initialization_options` / `workspace/configuration` with defaults (`host`, `port`, `authToken`, `basicAuth`, `lspEnabled`). The bundle is committed, so no download or `npm install` happens at runtime.
+6. **Robustness:** if openHAB is unreachable the server logs an LSP message (visible in Zed's log) and retries every 10 s; it never crashes. A missing bundle produces a clear `language_server_command` error.
 
 ---
 
@@ -162,8 +162,8 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 |---|---|---|---|
 | ✅ 0 | Scaffold `zed/openhab-zed` | `extension.toml`, `Cargo.toml`, `src/openhab.rs`, `languages/openhab/config.toml` | `cargo check` clean; **builds to `wasm32-wasip2`; installed & loaded in Zed** |
 | ✅ 1 | **Phase A highlighting** via `tree-sitter-java` | `highlights.scm`, `brackets.scm`, `indents.scm`, `outline.scm`, `textobjects.scm` | `tests/validate-queries.sh` green; captures verified on fixtures; **confirmed visually in Zed ("okayish")** |
-| 2 | **LSP packaging** | ⚠️ *Rust wiring done, bundle missing* — needs `server/LSPServer.js`; stdio; `initializationOptions` | Completion works against a real openHAB |
-| 3 | **LSP completion polish** | context-aware completion, details/docs, casing | Manual + unit tests (`serverJS/__tests__`) |
+| 2 | **LSP packaging** | ✅ *done* — `server/` ships a bundled Node server; stdio; `initializationOptions` + `workspace/configuration` | 23 tests green, incl. end-to-end against a fake openHAB; response verified over stdio |
+| 3 | **LSP completion polish** | ✅ *done with 2* — context-aware completion, type/state docs, auth | Unit + integration tests (`server/test/`) |
 | 4 | **Phase B grammar** | `tree-sitter-openhab` with DSL productions; swap grammar key + `config.toml` | `tree-sitter parse` clean on fixtures; visual parity vs Phase A |
 | 5 | Docs + release | `zed/README.md`, CI to build Rust target matrix, grammar rev pin | CI green |
 
@@ -175,7 +175,7 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
   Rule headers are only outlined in files whose triggers keep them parseable.
 - `.items` / `.things` / `.sitemap` / `.persist` are line-oriented and highlight
   acceptably; `.things` and `.persist` are mostly `ERROR` nodes by nature.
-- **The language server errors on startup** (logged once, harmless) because no server bundle ships yet — this is milestone 2, not a regression.
+- **The language server is bundled and tested**, but is only proven against a fake openHAB REST API, not a live instance (§10).
 
 ### Environment prerequisites (verified on this machine)
 
@@ -373,3 +373,63 @@ nothing regenerated `tests/reports/`.
 **Still open.** `ON`/`OFF` stay `@variable` (finding 10); `Number:Temperature`
 `:Temperature` stays `@variable`; rule headers are not outlined in most files. All
 three are Phase B items, not Phase A regressions.
+
+---
+
+## 10. Language server implementation (milestones 2 + 3)
+
+Adapted from `../openhab-vscode/serverJS` (~430 lines total, vendored by hand —
+the VS Code extension is only read, never modified).
+
+### Layout
+
+```
+server/
+├── openhab-language-server.js   # committed esbuild bundle (~326 KB), the thing users run
+├── package.json                 # esbuild + 2 runtime deps, dev-time only
+├── src/
+│   ├── LSPServer.js             # entry point (keeps upstream's module shape)
+│   ├── Server.js                # connection, settings, completion routing
+│   ├── ItemStore.js             # REST seed + SSE stream, auth, reconnect
+│   ├── Item.js                  # item model
+│   ├── completion.js            # context rules + completion item building
+│   └── files.js                 # extension/URI helpers
+└── test/                        # node:test; 23 tests
+```
+
+The bundle is **committed** so the extension needs no `npm install` at runtime and
+no `node_modules` in the shipped artifact. Verified self-contained: with
+`node_modules` moved away the server still answers `initialize` over stdio.
+
+### Deliberate deviations from the VS Code server
+
+| Upstream behaviour | Why it could not be ported | What this does |
+|---|---|---|
+| `createConnection(ProposedFeatures.all)` sniffs `--node-ipc` from argv | Zed passes `--stdio`; sniffing is unnecessary and fragile | Explicit stdio (no transport arg) |
+| `eventsource` package for the SSE stream | Extra dependency for a trivial `data:` line format; also mishandles openHAB's redirect | Node built-in `fetch` + manual line parsing |
+| Plain `http://` only, no credentials | openHAB 4 uses API tokens | `authToken` (Bearer) and `basicAuth`, token wins |
+| Settings only via `workspace/configuration` | Zed supplies the same object as `initializationOptions`; reading both avoids a race | `initializationOptions` first, then client config |
+| Every item returned in every position (`TODO` in its own source) | Completion was useless in `.things` and inside strings | Scoped to `.items`/`.rules`/`.script`/`.sitemap`; suppressed in strings and comments |
+| `itemCasing` setting | Only used by the "Create Items from Channels" *command*, which Zed has no equivalent for | Removed rather than shipped as dead config |
+| `DocumentValidator` | A stub returning an empty array | Not ported; no diagnostics provider advertised |
+| Errors `console.log`ged | Invisible in Zed | LSP `window/logMessage`, shown in Zed's log |
+
+### Behaviour verified
+
+- Responds to `initialize` over stdio and advertises a completion provider.
+- Unreachable openHAB → `cannot reach openHAB at host:port (…); item completion disabled`,
+  process stays alive, retries every 10 s.
+- End-to-end (fake REST API): `.rules` document yields the item names; the same
+  position inside a string literal yields none.
+- Event handling covers `ItemStateEvent`, `ItemStateChangedEvent` (both the
+  openHAB 4 `{type, value}` shape and the older bare string), `ItemAdded`,
+  `ItemUpdated` (`[new, old]`), `ItemRemoved`, and tolerates malformed payloads.
+
+### Known gaps
+
+- **Not tested against a live openHAB instance** — only a fake server. The SSE
+  consumption path (chunked `data:` lines, redirect handling) is exercised
+  against a stream that never sends events.
+- **No `persist` completion.** `.persist` files do take item names inside
+  `Items { }`, but per-line detection was too false-positive-prone; left out.
+- **`itemCasing`-style features** (generating names from channels) remain absent.

@@ -1,0 +1,154 @@
+/**
+ * Decides whether item names belong at the cursor, and builds the completion
+ * items.
+ *
+ * The VS Code extension returns every item in every position (see the TODO in
+ * its Server.js). That makes item completion useless inside `.things` files and
+ * inside string literals, where an item name is almost never what is wanted.
+ * This module narrows completion to positions where openHAB accepts one.
+ */
+'use strict'
+
+/** LSP CompletionItemKind.Variable */
+const KIND_VARIABLE = 6
+
+/** Item types offered in `.items` type position. */
+const ITEM_TYPES = [
+    'Color',
+    'Contact',
+    'DateTime',
+    'Dimmer',
+    'Group',
+    'Image',
+    'Location',
+    'Number',
+    'Player',
+    'Rollershutter',
+    'String',
+    'Switch',
+]
+
+/**
+ * Cursor context: the cursor's line and the text either side of the cursor.
+ *
+ * @param {string} source full document text
+ * @param {{line: number, character: number}} position LSP position
+ */
+function contextAt(source, position) {
+    const line = source.split(/\r?\n/)[position.line] || ''
+    return {
+        line,
+        before: line.slice(0, position.character),
+        after: line.slice(position.character),
+    }
+}
+
+/**
+ * True when the cursor is inside a string literal or after a line comment, as
+ * far as the current line reveals. Multi-line block comments are not detected;
+ * a completion offered inside one is simply ignored by the user.
+ */
+function inStringOrComment({ before }) {
+    if (before.includes('//')) {
+        return true
+    }
+    const quotes = (before.match(/"/g) || []).length + (before.match(/'/g) || []).length
+    return quotes % 2 === 1
+}
+
+/**
+ * Suggest item *types* at the start of a `.items` definition line.
+ *
+ * Every `.items` line begins with a type, and nothing later on the line can be
+ * one, so restricting to the leading token is both cheap and accurate. The
+ * `Group:Number:AVG` chain is excluded because those segments are unit or
+ * aggregation types, not item types.
+ */
+function isItemTypePosition(extension, context) {
+    if (extension !== 'items') {
+        return false
+    }
+    return /^\s*[A-Za-z_]*$/.test(context.before)
+}
+
+/**
+ * Decide whether to offer item names at this position.
+ *
+ * @param {string} extension one of items, rules, script, sitemap, things, persist
+ */
+function offersItems(extension, context) {
+    if (inStringOrComment(context)) {
+        return false
+    }
+    switch (extension) {
+        case 'items':
+        case 'rules':
+        case 'script':
+            return true
+        case 'sitemap':
+            // `item=…`, `visibility=[…]`, and comma-separated lists.
+            return /(\bitem\s*=\s*|\[|,)\s*[\w_]*$/.test(context.before)
+        case 'things':
+        case 'persist':
+            // `.things` never takes item names. `.persist` does, but only inside
+            // its `Items { }` block; per-line detection there is not worth the
+            // false positives, so leave it to Phase B.
+            return false
+        default:
+            return false
+    }
+}
+
+/**
+ * Build completion items for the given items.
+ *
+ * @param {object[]} items Item instances from the store
+ */
+function itemCompletions(items) {
+    return items.map((item) => ({
+        label: item.name,
+        kind: KIND_VARIABLE,
+        // The type is what tells a user whether `X.sendCommand(ON)` is valid.
+        detail: item.type,
+        documentation: documentationFor(item),
+    }))
+}
+
+/** Markdown shown in the completion details pane. */
+function documentationFor(item) {
+    const lines = [item.label || item.name]
+    if (item.state) {
+        lines.push(`State: \`${item.state}\``)
+    }
+    if (item.dimension) {
+        lines.push(`Dimension: ${item.dimension}`)
+    }
+    if (item.tags.length) {
+        lines.push(`Tags: ${item.tags.join(', ')}`)
+    }
+    if (item.groupNames.length) {
+        lines.push(`Groups: ${item.groupNames.join(', ')}`)
+    }
+    return lines.join('\n\n')
+}
+
+/** Item-type completions for `.items` type position. */
+function typeCompletions() {
+    return ITEM_TYPES.map((type) => ({
+        label: type,
+        // LSP CompletionItemKind.Class
+        kind: 7,
+        detail: 'item type',
+    }))
+}
+
+module.exports = {
+    ITEM_TYPES,
+    contextAt,
+    documentationFor,
+    inStringOrComment,
+    isItemTypePosition,
+    itemCompletions,
+    offersItems,
+    typeCompletions,
+}

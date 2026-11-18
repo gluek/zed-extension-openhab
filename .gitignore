@@ -2,9 +2,13 @@
 /grammars
 extension.wasm
 
-# Scratch workspace (harness CARGO_HOME, exploratory fixtures)
+# Scratch workspace (harness CARGO_HOME, npm cache)
 /.scratch
 # Query-validation harness build output
 /tests/harness/target
 # Generated capture reports
 /tests/reports
+# Language server: sources are tracked, build output and deps are not.
+# `server/openhab-language-server.js` IS tracked on purpose — it is the bundle
+# the extension ships.
+/server/node_modules

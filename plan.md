@@ -7,7 +7,7 @@ Port the openHAB Visual Studio Code extension into a **Zed language extension** 
 
 The working directory for the new extension is [`zed/openhab-zed/`](zed/openhab-zed/) — scaffolded, installed as a **dev extension** and highlighting works in Zed. The existing VS Code extension is left untouched; we only *read* from it.
 
-**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B** (purpose-built grammar) is **committed as `ac16be1`** and parses all 18 real configs in `/mnt/openhab/` **plus the `.sitemap` with 0 ERROR nodes** (sitemap fix in `d022b00`). Real-syntax fixtures added (`dab004f`) and **all five `languages/openhab/*.scm` queries rewritten for the new node names and validated against the openHAB grammar** (`c4dbb09`; `validate-queries.sh` 5/5 PASS, snapshots 20 ok / 0 changed). **Not yet active** — `extension.toml` still points at `tree-sitter-java`; the remaining steps are the key flip + wasm build + visual check, committed atomically (§11).
+**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B is ACTIVE** — committed as `012417d`: `extension.toml` now points at `[grammars.openhab]` (the in-repo `grammar/`, `file://` repository, rev-pinned), `config.toml` says `grammar = "openhab"`, and all five `languages/openhab/*.scm` queries target the new node names (`c4dbb09`). All 18 real configs in `/mnt/openhab/` incl. `.sitemap` parse with 0 ERROR nodes. Remaining: visual check in Zed (dev-extension flow), publish `openhab/tree-sitter-openhab` and repoint `repository`/`rev`, docs + CI (milestone 6).
 
 **Quick reference — validation commands (run from the repo root `openhab-zed/`):**
 
@@ -177,7 +177,7 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 | 2 | **LSP packaging** | ✅ *done* — `server/` ships a bundled Node server; stdio; `initializationOptions` + `workspace/configuration` | 23 tests green, incl. end-to-end against a fake openHAB; response verified over stdio |
 | 3 | **LSP completion polish** | ✅ *done with 2* — context-aware completion, type/state docs, auth | Unit + integration tests (`server/test/`) |
 | 4 | **Phase B grammar** | ✅ *committed `ac16be1`* — `grammar/` parses all 18 real `/mnt/openhab` files with 0 ERROR; `.sitemap` ERRORs fixed in `d022b00` (home.sitemap now 0 ERROR) | `tree-sitter parse` clean on real files; harness in `tests/harness` |
-| 5 | **Phase B switch** | 🟨 *partly done* — fixtures (`dab004f`) + `.scm` rewrite for new node names (`c4dbb09`, validated: 5/5 queries, 20/20 snapshots) are committed; remaining: `extension.toml` `[grammars.openhab]` key flip + `config.toml` `grammar = "openhab"` + wasm build | `validate-queries.sh` + `check-snapshots.sh` + wasm build green; visual check in Zed (§11 remaining steps) |
+| 5 | **Phase B switch** | ✅ *committed `012417d`* — `extension.toml` `[grammars.openhab]` (file:// → in-repo `grammar/`, rev-pinned) + `config.toml` `grammar = "openhab"`; queries already rewritten in `c4dbb09` | `validate-queries.sh` 5/5 + `check-snapshots.sh` 20 ok + wasm build clean + server 23 pass; visual check in Zed pending |
 | 6 | Docs + release | `zed/README.md`, CI to build Rust target matrix, grammar rev pin | CI green |
 
 ### Current known limitations (Phase A)
@@ -632,18 +632,24 @@ Phase A baseline. Snapshots regenerated with the openHAB grammar:
    `'single-quoted'`, `Location … [ latitude=… ]`.
 4. ~~Rewrite `languages/openhab/*.scm` for the new node names~~ ✅ done
    (`c4dbb09`, validated 5/5 + 20/20 before flipping).
-5. **Flip `extension.toml` to `[grammars.openhab]`** (key must be `openhab` so
-   the exported symbol is `tree_sitter_openhab`; point `repository` at the
-   published `openhab/tree-sitter-openhab` rev — milestone 6 publishes it) and
-   `config.toml`'s `grammar = "openhab"`.
-6. **Re-verify**: `tests/validate-queries.sh` + `tests/check-snapshots.sh`
-   (already green against the openHAB grammar), verify
-   `CARGO_HOME=.scratch/cargo cargo build --target wasm32-wasip2 --offline`
-   is still clean, then **visual check in Zed** (dev-extension flow).
-7. Commit (5)+(6) atomically as "Phase B switch".
+5. ~~Flip `extension.toml` to `[grammars.openhab]`~~ ✅ done (`012417d`) — key `openhab`
+   (exported symbol `tree_sitter_openhab`), `repository = "file://…/grammar"`,
+   rev-pinned; `config.toml` `grammar = "openhab"`. Phase A java entry kept
+   commented in `extension.toml` for rollback.
+6. ~~Re-verify~~ ✅ done — `validate-queries.sh` 5/5, `check-snapshots.sh` 20 ok /
+   0 changed, server tests 23 pass, `cargo build --target wasm32-wasip2 --offline`
+   clean (all after the flip).
+7. ~~Commit atomically as "Phase B switch"~~ ✅ `012417d`.
+8. **Visual check in Zed** (dev-extension flow) — pending; the one validation
+   step that cannot run headless.
+9. **Publish the grammar** as `openhab/tree-sitter-openhab` and repoint
+   `extension.toml`'s `repository`/`rev` at it (milestone 6) — required for
+   anyone building the extension off this machine, since `file://` only works
+   locally.
 
 ### Fallback
 
-Phase A stays shippable on its own. The switch is two lines (`extension.toml`
-grammar key + `config.toml` `grammar`), so Phase B can land in one commit once
-(5)–(6) are done — or be dropped without affecting the released extension.
+Phase A stays shippable on its own: its `extension.toml` entry is kept commented
+in the file, and the switch is two lines (`extension.toml` grammar key +
+`config.toml` `grammar`), so Phase B can be rolled back in one commit without
+affecting the released extension.

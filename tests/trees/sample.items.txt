@@ -1,162 +1,260 @@
 program
   line_comment '// Items'
-  local_variable_declaration
-    type: type_identifier 'Group'
-    declarator: variable_declarator
-      name: identifier 'gLights'
-    ; [MISSING] ''
-  ERROR [ERROR] '"All Lights" <light>\nGroup:'
-  labeled_statement
-    identifier 'Number'
-    : ':'
-    local_variable_declaration
-      type: type_identifier 'AVG'
-      declarator: variable_declarator
-        name: identifier 'gTemperature'
-      ; [MISSING] ''
-  expression_statement
-    string_literal
+  item_definition
+    type: item_type
+      base: item_type_base
+        Group 'Group'
+    name: identifier 'gLights'
+    label: string_literal
+      " '"'
+      string_fragment 'All Lights'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'light'
+      > '>'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Group 'Group'
+      : ':'
+      sub: identifier 'Number'
+      : ':'
+      sub: aggregation_word
+        AVG 'AVG'
+    name: identifier 'gTemperature'
+    label: string_literal
       " '"'
       string_fragment 'Avg Temperature'
       " '"'
-    ; [MISSING] ''
-  expression_statement
-    array_access
-      array: parenthesized_expression
-        ( '('
-        identifier 'gWeather'
-        ) ')'
+    groups: group_list
+      ( '('
+      identifier 'gWeather'
+      ) ')'
+    tags: tag_list
       [ '['
-      index: string_literal
+      string_literal
         " '"'
         string_fragment 'Measurement'
         " '"'
       ] ']'
-    ; [MISSING] ''
-  local_variable_declaration
-    type: type_identifier 'Switch'
-    declarator: variable_declarator
-      name: identifier 'Kitchen_Light'
-    ; [MISSING] ''
-  expression_statement
-    binary_expression
-      left: binary_expression
-        left: string_literal
-          " '"'
-          string_fragment 'Kitchen Light'
-          " '"'
-        operator: < '<'
-        right: identifier 'light'
-      operator: > '>'
-      right: array_access
-        array: parenthesized_expression
-          ( '('
-          identifier 'gLights'
-          ) ')'
-        [ '['
-        index: string_literal
-          " '"'
-          string_fragment 'Lighting'
-          " '"'
-        ] ']'
-    ; [MISSING] ''
-  block
-    { '{'
-    ERROR [ERROR] 'channel="hue:0210:1:bulb1:color", autoupdate="fals'
-    } '}'
-  local_variable_declaration
-    type: type_identifier 'Dimmer'
-    declarator: variable_declarator
-      name: identifier 'Livingroom_Dimmer'
-    ; [MISSING] ''
-  expression_statement
-    string_literal
+  item_definition
+    type: item_type
+      base: item_type_base
+        Switch 'Switch'
+    name: identifier 'Kitchen_Light'
+    label: string_literal
+      " '"'
+      string_fragment 'Kitchen Light'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'light'
+      > '>'
+    groups: group_list
+      ( '('
+      identifier 'gLights'
+      ) ')'
+    tags: tag_list
+      [ '['
+      string_literal
+        " '"'
+        string_fragment 'Lighting'
+        " '"'
+      ] ']'
+    metadata: item_metadata
+      { '{'
+      metadata_entry
+        key: metadata_key
+          identifier 'channel'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'hue:0210:1:bulb1:color'
+            " '"'
+      ERROR [ERROR] ','
+      metadata_entry
+        key: metadata_key
+          identifier 'autoupdate'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'false'
+            " '"'
+      } '}'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Dimmer 'Dimmer'
+    name: identifier 'Livingroom_Dimmer'
+    label: string_literal
       " '"'
       string_fragment 'Dimmer [%d %%]'
       " '"'
-    ; [MISSING] ''
-  ERROR [ERROR] '(gLights)'
-  block
-    { '{'
-    expression_statement
-      assignment_expression
-        left: identifier 'channel'
-        operator: = '='
-        right: string_literal
-          " '"'
-          string_fragment 'deconz:switch:hue:sw1:brightness'
-          " '"'
-      ; [MISSING] ''
-    } '}'
-  local_variable_declaration
-    type: type_identifier 'Color'
-    declarator: variable_declarator
-      name: identifier 'Bedroom_Color'
-    ; [MISSING] ''
-  expression_statement
-    string_literal
+    groups: group_list
+      ( '('
+      identifier 'gLights'
+      ) ')'
+    metadata: item_metadata
+      { '{'
+      metadata_entry
+        key: metadata_key
+          identifier 'channel'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'deconz:switch:hue:sw1:brightness'
+            " '"'
+      } '}'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Color 'Color'
+    name: identifier 'Bedroom_Color'
+    label: string_literal
       " '"'
       string_fragment 'Bedroom [%s]'
       " '"'
-    ; [MISSING] ''
-  block
-    { '{'
-    expression_statement
-      assignment_expression
-        left: identifier 'channel'
-        operator: = '='
-        right: string_literal
-          " '"'
-          string_fragment 'hue:0210:2:bulb2:color'
-          " '"'
-      ; [MISSING] ''
-    } '}'
-  labeled_statement
-    identifier 'Number'
-    : ':'
-    local_variable_declaration
-      type: type_identifier 'Temperature'
-      declarator: variable_declarator
-        name: identifier 'Weather_Temperature'
-      ; [MISSING] ''
-  expression_statement
-    binary_expression
-      left: binary_expression
-        left: string_literal
-          " '"'
-          string_fragment 'Outside [%.1f %unit%]'
-          " '"'
-        operator: < '<'
-        right: identifier 'temperature'
-      operator: > '>'
-      right: array_access
-        array: parenthesized_expression
-          ( '('
-          identifier 'gWeather'
-          ) ')'
-        [ '['
-        ERROR [ERROR] '"Measurement",'
-        index: string_literal
-          " '"'
-          string_fragment 'Temperature'
-          " '"'
-        ] ']'
-    ; [MISSING] ''
-  block
-    { '{'
-    expression_statement
-      assignment_expression
-        left: identifier 'channel'
-        operator: = '='
-        right: string_literal
-          " '"'
-          string_fragment 'openweathermap:weather-and-forecast:api:local:curr'
-          " '"'
-      ; [MISSING] ''
-    } '}'
-  local_variable_declaration
-    type: type_identifier 'DateTime'
-    declarator: variable_declarator
-      name: identifier 'Last_Update'
-    ; [MISSING] ''
-  ERROR [ERROR] '"Last Update [%1$tY-%1$tm-%1$td %1$tH:%1$tM]" <tim'
+    metadata: item_metadata
+      { '{'
+      metadata_entry
+        key: metadata_key
+          identifier 'channel'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'hue:0210:2:bulb2:color'
+            " '"'
+      } '}'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Number 'Number'
+      : ':'
+      sub: identifier 'Temperature'
+    name: identifier 'Weather_Temperature'
+    label: string_literal
+      " '"'
+      string_fragment 'Outside [%.1f %unit%]'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'temperature'
+      > '>'
+    groups: group_list
+      ( '('
+      identifier 'gWeather'
+      ) ')'
+    tags: tag_list
+      [ '['
+      string_literal
+        " '"'
+        string_fragment 'Measurement'
+        " '"'
+      , ','
+      string_literal
+        " '"'
+        string_fragment 'Temperature'
+        " '"'
+      ] ']'
+    metadata: item_metadata
+      { '{'
+      metadata_entry
+        key: metadata_key
+          identifier 'channel'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'openweathermap:weather-and-forecast:api:local:curr'
+            " '"'
+      } '}'
+  item_definition
+    type: item_type
+      base: item_type_base
+        DateTime 'DateTime'
+    name: identifier 'Last_Update'
+    label: string_literal
+      " '"'
+      string_fragment 'Last Update [%1$tY-%1$tm-%1$td %1$tH:%1$tM]'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'time'
+      > '>'
+  item_definition
+    type: item_type
+      base: item_type_base
+        String 'String'
+    name: identifier 'Persistence_Service'
+    label: string_literal
+      " '"'
+      string_fragment 'Persistence Service'
+      " '"'
+    metadata: item_metadata
+      { '{'
+      metadata_entry
+        key: metadata_key
+          identifier 'stateDescription'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            " '"'
+        config: metadata_config
+          [ '['
+          key: identifier 'options'
+          = '='
+          value: metadata_value
+            string_literal
+              " '"'
+              string_fragment 'rrd4j=rr4j,mapdb=mapdb'
+              " '"'
+          ] ']'
+      } '}'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Rollershutter 'Rollershutter'
+    name: identifier 'Roller_Shutter'
+    label: string_literal
+      " '"'
+      string_fragment 'Shutter [%.0f %%]'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'rollershutter'
+      > '>'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Contact 'Contact'
+    name: identifier 'Front_Door'
+    label: string_literal
+      " '"'
+      string_fragment 'Front Door [MAP(en.map):%s]'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'frontdoor'
+      > '>'
+    groups: group_list
+      ( '('
+      identifier 'gWindows'
+      ) ')'
+    metadata: item_metadata
+      { '{'
+      metadata_entry
+        key: metadata_key
+          identifier 'channel'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'zwave:device:node1:sensor_binary'
+            " '"'
+      } '}'

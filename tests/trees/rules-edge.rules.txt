@@ -33,73 +33,155 @@ program
       . '.'
       name: identifier 'Date'
     ; ';'
-  expression_statement
-    identifier 'rule'
-    ; [MISSING] ''
-  ERROR [ERROR] '"Cron ping"\nwhen'
-  local_variable_declaration
-    type: type_identifier 'Time'
-    declarator: variable_declarator
-      name: identifier 'cron'
-    ; [MISSING] ''
-  ERROR [ERROR] '"0 0/5 * * * ?"\nthen\n    logInfo("cron", "tick")'
-  expression_statement
-    identifier 'rule'
-    ; [MISSING] ''
-  ERROR [ERROR] '"System start"\nwhen\n    System'
-  local_variable_declaration
-    type: type_identifier 'started'
-    declarator: variable_declarator
-      name: identifier 'then'
-    ; [MISSING] ''
-  expression_statement
-    method_invocation
-      name: identifier 'logInfo'
-      arguments: argument_list
-        ( '('
-        string_literal
-          " '"'
-          string_fragment 'boot'
-          " '"'
-        , ','
-        string_literal
-          " '"'
-          string_fragment 'openHAB started'
-          " '"'
-        ) ')'
-    ; [MISSING] ''
-  local_variable_declaration
-    type: type_identifier 'end'
-    declarator: variable_declarator
-      name: identifier 'rule'
-    ; [MISSING] ''
-  ERROR [ERROR] '"Switch turned on"\nwhen\n    Item'
-  local_variable_declaration
-    type: type_identifier 'Main_Switch'
-    declarator: variable_declarator
-      name: identifier 'changed'
-    ; [MISSING] ''
-  local_variable_declaration
-    type: type_identifier 'to'
-    declarator: variable_declarator
-      name: identifier 'ON'
-    ; [MISSING] ''
-  ERROR [ERROR] 'then\n    Kitchen_Light.sendCommand(ON)\nend\n\nru'
-  expression_statement
-    identifier 'script'
-    ; [MISSING] ''
-  ERROR [ERROR] '"\nwhen\n    System started\nthen\n    logInfo("st'
-  local_variable_declaration
-    type: type_identifier 'end'
-    declarator: variable_declarator
-      name: identifier 'val'
-    ; [MISSING] ''
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Cron ping'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Time 'Time'
+      cron 'cron'
+      cron: string_literal
+        " '"'
+        string_fragment '0 0/5 * * * ?'
+        " '"'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'cron'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'tick'
+            " '"'
+          ) ')'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'System start'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      System 'System'
+      event: started 'started'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'boot'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'openHAB started'
+            " '"'
+          ) ')'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Switch turned on'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Item 'Item'
+      item: identifier 'Main_Switch'
+      changed 'changed'
+      to 'to'
+      trigger_state
+        identifier 'ON'
+    then 'then'
+    body: rule_body
+      oh_field_call_statement
+        object: identifier 'Kitchen_Light'
+        . '.'
+        name: identifier 'sendCommand'
+        arguments: argument_list
+          ( '('
+          identifier 'ON'
+          ) ')'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Sunrise'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Channel 'Channel'
+      channel: string_literal
+        " '"'
+        string_fragment 'astro:sun:local:rise#event'
+        " '"'
+      triggered 'triggered'
+      START 'START'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'sun'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'sunrise'
+            " '"'
+          ) ')'
+    end 'end'
+  rule_declaration
+    script 'script'
+    name: string_literal
+      " '"'
+      string_fragment 'Startup script'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      System 'System'
+      event: started 'started'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'startup'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'script executed'
+            " '"'
+          ) ')'
+    end 'end'
+  oh_var_declaration
+    keyword: val 'val'
+    name: identifier 'java'
+  ERROR [ERROR] '.'
   local_variable_declaration
     type: scoped_type_identifier
-      scoped_type_identifier
-        type_identifier 'java'
-        . '.'
-        type_identifier 'util'
+      type_identifier 'util'
       . '.'
       type_identifier 'Date'
     declarator: variable_declarator
@@ -112,43 +194,18 @@ program
           ( '('
           ) ')'
     ; [MISSING] ''
-  local_variable_declaration
-    type: type_identifier 'var'
-    ERROR [ERROR] 'String'
-    declarator: variable_declarator
-      name: identifier 'greeting'
-      = '='
-      value: string_literal
+  oh_var_declaration
+    keyword: var 'var'
+    type: oh_var_type
+      String 'String'
+    name: identifier 'greeting'
+    = '='
+    value: oh_var_value
+      string_literal
         " '"'
         string_fragment 'hello'
         " '"'
-    ; [MISSING] ''
-  local_variable_declaration
-    type: type_identifier 'val'
-    declarator: variable_declarator
-      name: identifier 'Runnable'
-      ERROR [ERROR] 'task'
-      = '='
-      ERROR [ERROR] '[ |\n    logInfo("lambda", "anonymous lambda ran")'
-      value: array_access
-        array: field_access
-          object: field_access
-            object: identifier 'gLights'
-            . '.'
-            field: identifier 'members'
-          . '.'
-          field: identifier 'forEach'
-        [ '['
-        index: binary_expression
-          left: identifier 'member'
-          operator: | '|'
-          right: method_invocation
-            object: identifier 'member'
-            . '.'
-            name: identifier 'sendCommand'
-            arguments: argument_list
-              ( '('
-              identifier 'OFF'
-              ) ')'
-        ] ']'
-    ; [MISSING] ''
+  oh_var_declaration
+    keyword: val 'val'
+    name: identifier 'Runnable'
+  ERROR [ERROR] 'task = [ |\n    logInfo("lambda", "anonymous lambd'

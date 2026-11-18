@@ -1,0 +1,218 @@
+program
+  line_comment '// Real-syntax items from /mnt/openhab (groups.ite'
+  line_comment '// covering constructs the synthetic fixtures lack'
+  line_comment '// multiple groups/tags, metadata state descriptio'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Group 'Group'
+      : ':'
+      sub: identifier 'Contact'
+      : ':'
+      aggregation: aggregation_function
+        name: aggregation_word
+          OR 'OR'
+        ( '('
+        identifier 'OPEN'
+        , ','
+        identifier 'CLOSED'
+        ) ')'
+    name: identifier 'gWindowsensors'
+    label: string_literal
+      " '"'
+      string_fragment 'Fenstersensoren'
+      " '"'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Group 'Group'
+      : ':'
+      sub: identifier 'Number'
+      : ':'
+      sub: identifier 'Temperature'
+      : ':'
+      sub: aggregation_word
+        AVG 'AVG'
+    name: identifier 'gTemperatures'
+    label: string_literal
+      " '"'
+      string_fragment 'Temperaturen'
+      " '"'
+    tags: tag_list
+      [ '['
+      string_literal
+        " '"'
+        string_fragment 'Measurement'
+        " '"'
+      ] ']'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Group 'Group'
+    name: identifier 'gAll'
+    label: string_literal
+      " '"'
+      string_fragment 'Alle'
+      " '"'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Switch 'Switch'
+    name: identifier 'Kitchen_Light'
+    label: string_literal
+      " '"'
+      string_fragment 'Kitchen Light'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'light'
+      > '>'
+    groups: group_list
+      ( '('
+      identifier 'gAll'
+      , ','
+      identifier 'gLights'
+      ) ')'
+    tags: tag_list
+      [ '['
+      string_literal
+        " '"'
+        string_fragment 'Lighting'
+        " '"'
+      ] ']'
+    metadata: item_metadata
+      { '{'
+      metadata_entry
+        key: metadata_key
+          identifier 'channel'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'hue:0210:1:bulb1:color'
+            " '"'
+      metadata_entry
+        key: metadata_key
+          identifier 'autoupdate'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'false'
+            " '"'
+      } '}'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Number 'Number'
+      : ':'
+      sub: identifier 'Temperature'
+    name: identifier 'Outdoor'
+    label: string_literal
+      " '"'
+      string_fragment 'Outdoor [%.1f °C]'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'temperature'
+      > '>'
+    groups: group_list
+      ( '('
+      identifier 'gTemperatures'
+      ) ')'
+    tags: tag_list
+      [ '['
+      string_literal
+        " '"'
+        string_fragment 'Outdoor'
+        " '"'
+      , ','
+      string_literal
+        " '"'
+        string_fragment 'Temperature'
+        " '"'
+      ] ']'
+    metadata: item_metadata
+      { '{'
+      metadata_entry
+        key: metadata_key
+          identifier 'stateDescription'
+        block: metadata_block
+          { '{'
+          metadata_entry
+            key: metadata_key
+              identifier 'pattern'
+            = '='
+            value: metadata_value
+              string_literal
+                " '"'
+                string_fragment '%.1f °C'
+                " '"'
+          metadata_entry
+            key: metadata_key
+              identifier 'readOnly'
+            = '='
+            value: metadata_value
+              string_literal
+                " '"'
+                string_fragment 'true'
+                " '"'
+          } '}'
+      } '}'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Contact 'Contact'
+    name: identifier 'Front_Door'
+    label: string_literal
+      " '"'
+      string_fragment 'Front Door [MAP(en.map):%s]'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'frontdoor'
+      > '>'
+    groups: group_list
+      ( '('
+      identifier 'gWindowsensors'
+      ) ')'
+    tags: tag_list
+      [ '['
+      string_literal
+        " '"'
+        string_fragment 'Door'
+        " '"'
+      ] ']'
+  item_definition
+    type: item_type
+      base: item_type_base
+        Location 'Location'
+    name: identifier 'Garage'
+    label: string_literal
+      " '"'
+      string_fragment 'Garage'
+      " '"'
+    icon: item_icon
+      < '<'
+      name: identifier 'location'
+      > '>'
+    location_config: thing_config
+      [ '['
+      thing_config_pair
+        key: identifier 'latitude'
+        = '='
+        value: metadata_value
+          decimal_floating_point_literal '52.520008'
+      , ','
+      thing_config_pair
+        key: identifier 'longitude'
+        = '='
+        value: metadata_value
+          decimal_floating_point_literal '13.404954'
+      , ','
+      thing_config_pair
+        key: identifier 'altitude'
+        = '='
+        value: metadata_value
+          decimal_integer_literal '34'
+      ] ']'

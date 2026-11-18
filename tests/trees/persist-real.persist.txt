@@ -1,0 +1,69 @@
+program
+  line_comment '// Real-syntax persist: newline-separated items (n'
+  line_comment '// strategy alias via `default =`, restoreOnStartu'
+  persist_section
+    persist_strategies_section
+      Strategies 'Strategies'
+      { '{'
+      persist_strategy
+        name: identifier 'everyMinute'
+        : ':'
+        string_literal
+          " '"'
+          string_fragment '0 * * * * ?'
+          " '"'
+      persist_strategy
+        name: identifier 'everyHour'
+        : ':'
+        string_literal
+          " '"'
+          string_fragment '0 0 * * * ?'
+          " '"'
+      persist_strategy
+        name: identifier 'everyDay'
+        : ':'
+        string_literal
+          " '"'
+          string_fragment '0 0 0 * * ?'
+          " '"'
+      persist_strategy
+        default 'default'
+        = '='
+        string_literal
+          " '"'
+          string_fragment 'everyDay'
+          " '"'
+      } '}'
+  persist_section
+    persist_items_section
+      Items 'Items'
+      { '{'
+      persist_config
+        items: persist_item_pattern
+          name: identifier 'gTemperatures'
+          * '*'
+        : ':'
+        strategy 'strategy'
+        = '='
+        strategies: persist_strategy_name
+          identifier 'everyHour'
+        strategies: , ','
+        strategies: persist_strategy_name
+          restoreOnStartup 'restoreOnStartup'
+      persist_config
+        items: persist_item_pattern
+          name: identifier 'Kitchen_Light'
+        : ':'
+        strategy 'strategy'
+        = '='
+        strategies: persist_strategy_name
+          identifier 'everyChange'
+      persist_config
+        items: persist_item_pattern
+          name: * '*'
+        : ':'
+        strategy 'strategy'
+        = '='
+        strategies: persist_strategy_name
+          identifier 'default'
+      } '}'

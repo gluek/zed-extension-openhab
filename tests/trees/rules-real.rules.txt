@@ -1,0 +1,431 @@
+program
+  line_comment '// Real-syntax rules from /mnt/openhab (hueautomat'
+  line_comment '// vacation.rules, globalcommands.rules): var Time'
+  line_comment '// Thread::sleep(…) chains, (x as T).m(), single-q'
+  line_comment '// `received command`, `changed to`, map entries w'
+  oh_var_declaration
+    keyword: var 'var'
+    type: oh_var_type
+      Timer 'Timer'
+    name: identifier 'wakeupTimer'
+    = '='
+    value: oh_var_value
+      null_literal 'null'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Aufwachen'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Time 'Time'
+      cron 'cron'
+      cron: string_literal
+        " '"'
+        string_fragment '0 40 7 ? * MON-FRI'
+        " '"'
+    then 'then'
+    body: rule_body
+      if_statement
+        if 'if'
+        condition: parenthesized_expression
+          ( '('
+          binary_expression
+            left: field_access
+              object: identifier 'Automation_Wakeup'
+              . '.'
+              field: identifier 'state'
+            operator: == '=='
+            right: identifier 'ON'
+          ) ')'
+        consequence: block
+          { '{'
+          oh_var_declaration
+            keyword: val 'val'
+            name: identifier 'timer'
+            = '='
+            value: oh_var_value
+              method_invocation
+                name: identifier 'createTimer'
+                arguments: argument_list
+                  ( '('
+                  method_invocation
+                    object: identifier 'now'
+                    . '.'
+                    name: identifier 'plusMinutes'
+                    arguments: argument_list
+                      ( '('
+                      decimal_integer_literal '10'
+                      ) ')'
+                  , ','
+                  oh_lambda
+                    oh_lambda_statement
+                      oh_lambda_field_statement
+                        oh_lambda_call
+                          object: identifier 'Kitchen_Light'
+                          . '.'
+                          name: identifier 'sendCommand'
+                          arguments: argument_list
+                            ( '('
+                            identifier 'ON'
+                            ) ')'
+                    oh_lambda_statement
+                      oh_lambda_expression
+                        assignment_expression
+                          left: identifier 'wakeupTimer'
+                          operator: = '='
+                          right: null_literal 'null'
+                    ] ']'
+                  ) ')'
+          oh_method_call_statement
+            object: identifier 'Thread'
+            :: '::'
+            name: identifier 'sleep'
+            arguments: argument_list
+              ( '('
+              decimal_integer_literal '200'
+              ) ')'
+          oh_method_call_statement
+            object: identifier 'Thread'
+            :: '::'
+            name: identifier 'sleep'
+            arguments: argument_list
+              ( '('
+              decimal_integer_literal '100'
+              ) ')'
+          } '}'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Szene wechseln'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Item 'Item'
+      item: identifier 'Trigger_Scene_Bedroom'
+      changed 'changed'
+      to 'to'
+      trigger_state
+        decimal_integer_literal '3'
+    triggers: or 'or'
+    triggers: trigger_condition
+      Item 'Item'
+      item: identifier 'Lights_OnOff'
+      received 'received'
+      command 'command'
+      trigger_state
+        identifier 'ON'
+    then 'then'
+    body: rule_body
+      oh_var_declaration
+        keyword: val 'val'
+        name: identifier 'newValue'
+        = '='
+        value: oh_var_value
+          parenthesized_expression
+            ( '('
+            binary_expression
+              left: parenthesized_expression
+                ( '('
+                binary_expression
+                  left: binary_expression
+                    left: method_invocation
+                      object: oh_as_cast
+                        ( '('
+                        value: field_access
+                          object: identifier 'Trigger_Scene_Bedroom'
+                          . '.'
+                          field: identifier 'state'
+                        as 'as'
+                        type: type_identifier 'DecimalType'
+                        ) ')'
+                      . '.'
+                      name: identifier 'intValue'
+                      arguments: argument_list
+                        ( '('
+                        ) ')'
+                    operator: - '-'
+                    right: decimal_integer_literal '1'
+                  operator: + '+'
+                  right: decimal_integer_literal '4'
+                ) ')'
+              operator: % '%'
+              right: decimal_integer_literal '4'
+            ) ')'
+      oh_field_call_statement
+        object: identifier 'Trigger_Scene_Bedroom'
+        . '.'
+        name: identifier 'sendCommand'
+        arguments: argument_list
+          ( '('
+          identifier 'newValue'
+          ) ')'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Vacation mode'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Item 'Item'
+      item: identifier 'VacationMode'
+      received 'received'
+      command 'command'
+      trigger_state
+        identifier 'ON'
+    then 'then'
+    body: rule_body
+      oh_field_call_statement
+        object: identifier 'gAll'
+        . '.'
+        name: identifier 'sendCommand'
+        arguments: argument_list
+          ( '('
+          identifier 'OFF'
+          ) ')'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'String compare'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Item 'Item'
+      item: identifier 'Ikea_Switch_2_State'
+      received 'received'
+      update 'update'
+    then 'then'
+    body: rule_body
+      if_statement
+        if 'if'
+        condition: parenthesized_expression
+          ( '('
+          binary_expression
+            left: field_access
+              object: identifier 'Ikea_Switch_2_State'
+              . '.'
+              field: identifier 'state'
+            operator: == '=='
+            right: character_literal ''on''
+          ) ')'
+        consequence: block
+          { '{'
+          oh_call_statement
+            name: identifier 'logInfo'
+            arguments: argument_list
+              ( '('
+              string_literal
+                " '"'
+                string_fragment 'switch'
+                " '"'
+              , ','
+              string_literal
+                " '"'
+                string_fragment 'on'
+                " '"'
+              ) ')'
+          } '}'
+        else 'else'
+        alternative: if_statement
+          if 'if'
+          condition: parenthesized_expression
+            ( '('
+            binary_expression
+              left: field_access
+                object: identifier 'Ikea_Switch_2_State'
+                . '.'
+                field: identifier 'state'
+              operator: == '=='
+              right: character_literal ''off''
+            ) ')'
+          consequence: block
+            { '{'
+            oh_call_statement
+              name: identifier 'logInfo'
+              arguments: argument_list
+                ( '('
+                string_literal
+                  " '"'
+                  string_fragment 'switch'
+                  " '"'
+                , ','
+                string_literal
+                  " '"'
+                  string_fragment 'off'
+                  " '"'
+                ) ')'
+            } '}'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Map entry call'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      System 'System'
+      event: started 'started'
+    then 'then'
+    body: rule_body
+      oh_var_declaration
+        keyword: val 'val'
+        name: identifier 'map'
+        = '='
+        value: oh_var_value
+          method_invocation
+            name: identifier 'sendHttpPost'
+            arguments: argument_list
+              ( '('
+              string_literal
+                " '"'
+                string_fragment 'http://example.com'
+                " '"'
+              , ','
+              string_literal
+                " '"'
+                string_fragment 'text/plain'
+                " '"'
+              , ','
+              oh_map_entry
+                string_literal
+                  " '"'
+                  string_fragment 'k'
+                  " '"'
+                -> '->'
+                string_literal
+                  " '"'
+                  string_fragment 'v'
+                  " '"'
+              ) ')'
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'map'
+            " '"'
+          , ','
+          identifier 'map'
+          ) ')'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Changed from/to'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Item 'Item'
+      item: identifier 'Front_Door'
+      changed 'changed'
+      from 'from'
+      trigger_state
+        identifier 'CLOSED'
+      to 'to'
+      trigger_state
+        identifier 'OPEN'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'door'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'opened'
+            " '"'
+          ) ')'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Member of group'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Member 'Member'
+      of 'of'
+      ( '('
+      group: identifier 'gWindowsensors'
+      ) ')'
+      changed 'changed'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'group'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'a window sensor changed'
+            " '"'
+          ) ')'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Lambda with params'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Item 'Item'
+      item: identifier 'gLights'
+      changed 'changed'
+    then 'then'
+    body: rule_body
+      oh_var_declaration
+        keyword: val 'val'
+        name: identifier 'action'
+        = '='
+        value: oh_var_value
+          oh_lambda
+            identifier 'member'
+            | '|'
+            oh_lambda_statement
+              oh_lambda_field_statement
+                oh_lambda_call
+                  object: identifier 'member'
+                  . '.'
+                  name: identifier 'sendCommand'
+                  arguments: argument_list
+                    ( '('
+                    identifier 'OFF'
+                    ) ')'
+            ] ']'
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'lambda'
+            " '"'
+          , ','
+          field_access
+            object: identifier 'action'
+            . '.'
+            field: identifier 'toString'
+          ) ')'
+    end 'end'

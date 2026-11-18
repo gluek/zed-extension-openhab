@@ -1,134 +1,170 @@
 program
   line_comment '// Edge-case things: bridge with nested things, ch'
-  local_variable_declaration
-    type: type_identifier 'Bridge'
-    ERROR [ERROR] 'hue:bridge:'
-    declarator: variable_declarator
-      name: identifier 'office'
-    ; [MISSING] ''
-  expression_statement
-    array_access
-      array: string_literal
-        " '"'
-        string_fragment 'Office Hue'
-        " '"'
+  thing_definition
+    kind: Bridge 'Bridge'
+    uid: thing_uid
+      binding: identifier 'hue'
+      : ':'
+      segment: thing_uid_segment 'bridge'
+      : ':'
+      segment: thing_uid_segment 'office'
+    label: string_literal
+      " '"'
+      string_fragment 'Office Hue'
+      " '"'
+    config: thing_config
       [ '['
-      ERROR [ERROR] 'ipAddress="192.168.1.10",'
-      index: assignment_expression
-        left: identifier 'username'
-        operator: = '='
-        right: string_literal
-          " '"'
-          string_fragment 'abc123'
-          " '"'
+      thing_config_pair
+        key: identifier 'ipAddress'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment '192.168.1.10'
+            " '"'
+      , ','
+      thing_config_pair
+        key: identifier 'username'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'abc123'
+            " '"'
       ] ']'
-    ; [MISSING] ''
-  block
-    { '{'
-    local_variable_declaration
-      type: type_identifier 'Thing'
-      ERROR [ERROR] '0210'
-      declarator: variable_declarator
-        name: identifier 'bulb1'
-      ; [MISSING] ''
-    expression_statement
-      array_access
-        array: string_literal
+    body: thing_body
+      { '{'
+      thing_definition
+        kind: Thing 'Thing'
+        ERROR [ERROR] '0210'
+        uid: thing_uid
+          binding: identifier 'bulb1'
+          segment: thing_uid_segment [MISSING] ''
+        label: string_literal
           " '"'
           string_fragment 'Bulb 1'
           " '"'
-        [ '['
-        index: assignment_expression
-          left: identifier 'lightId'
-          operator: = '='
-          right: string_literal
-            " '"'
-            string_fragment '1'
-            " '"'
-        ] ']'
-      ; [MISSING] ''
-    block
-      { '{'
-      labeled_statement
-        identifier 'Channels'
-        : ':'
-        local_variable_declaration
-          type: type_identifier 'Type'
-          ERROR [ERROR] 'color :'
-          declarator: variable_declarator
-            name: identifier 'color'
-            dimensions: dimensions
-              [ '['
-              ] ']'
-          ; [MISSING] ''
-      } '}'
-    local_variable_declaration
-      type: type_identifier 'Thing'
-      ERROR [ERROR] '0210'
-      declarator: variable_declarator
-        name: identifier 'bulb2'
-      ; [MISSING] ''
-    expression_statement
-      array_access
-        array: string_literal
+        config: thing_config
+          [ '['
+          thing_config_pair
+            key: identifier 'lightId'
+            = '='
+            value: metadata_value
+              string_literal
+                " '"'
+                string_fragment '1'
+                " '"'
+          ] ']'
+        body: thing_body
+          { '{'
+          channel_section
+            Channels 'Channels'
+            : ':'
+            channel_definition
+              Type 'Type'
+              channel_type: channel_type
+                color 'color'
+              : ':'
+              id: identifier 'color'
+              config: thing_config
+                [ '['
+                ] ']'
+          } '}'
+      thing_definition
+        kind: Thing 'Thing'
+        ERROR [ERROR] '0210'
+        uid: thing_uid
+          binding: identifier 'bulb2'
+          segment: thing_uid_segment [MISSING] ''
+        label: string_literal
           " '"'
           string_fragment 'Bulb 2'
           " '"'
-        [ '['
-        index: assignment_expression
-          left: identifier 'lightId'
-          operator: = '='
-          right: string_literal
-            " '"'
-            string_fragment '2'
-            " '"'
-        ] ']'
-      ; [MISSING] ''
-    } '}'
-  local_variable_declaration
-    type: type_identifier 'Thing'
-    ERROR [ERROR] 'mqtt:topic:'
-    declarator: variable_declarator
-      name: identifier 'status'
-    ; [MISSING] ''
-  ERROR [ERROR] '"Status Topic" ('
-  labeled_statement
-    identifier 'mqtt'
-    : ':'
-    labeled_statement
+        config: thing_config
+          [ '['
+          thing_config_pair
+            key: identifier 'lightId'
+            = '='
+            value: metadata_value
+              string_literal
+                " '"'
+                string_fragment '2'
+                " '"'
+          ] ']'
+      } '}'
+  thing_definition
+    kind: Thing 'Thing'
+    uid: thing_uid
+      binding: identifier 'mqtt'
+      : ':'
+      segment: thing_uid_segment 'topic'
+      : ':'
+      segment: thing_uid_segment 'status'
+    label: string_literal
+      " '"'
+      string_fragment 'Status Topic'
+      " '"'
+    bridge: ( '('
+    bridge: qualified_name
+      identifier 'mqtt'
+      : ':'
       identifier 'broker'
       : ':'
-      expression_statement
-        array_access
-          array: identifier 'home'
-          ERROR [ERROR] ')'
-          [ '['
-          index: assignment_expression
-            left: identifier 'q'
-            operator: = '='
-            right: decimal_integer_literal '1'
-          ] ']'
-        ; [MISSING] ''
-  block
-    { '{'
-    labeled_statement
-      identifier 'Channels'
-      : ':'
-      ERROR [ERROR] 'Type number : temp "Temperature" [ stateTopic="hou'
-      expression_statement
-        array_access
-          array: string_literal
+      identifier 'home'
+    bridge: ) ')'
+    config: thing_config
+      [ '['
+      thing_config_pair
+        key: identifier 'q'
+        = '='
+        value: metadata_value
+          decimal_integer_literal '1'
+      ] ']'
+    body: bridge_body
+      { '{'
+      channel_section
+        Channels 'Channels'
+        : ':'
+        channel_definition
+          Type 'Type'
+          channel_type: channel_type
+            number 'number'
+          : ':'
+          id: identifier 'temp'
+          label: string_literal
+            " '"'
+            string_fragment 'Temperature'
+            " '"'
+          config: thing_config
+            [ '['
+            thing_config_pair
+              key: identifier 'stateTopic'
+              = '='
+              value: metadata_value
+                string_literal
+                  " '"'
+                  string_fragment 'house/temp'
+                  " '"'
+            ] ']'
+        channel_definition
+          Type 'Type'
+          channel_type: channel_type
+            switch 'switch'
+          : ':'
+          id: identifier 'power'
+          label: string_literal
             " '"'
             string_fragment 'Power'
             " '"'
-          [ '['
-          index: assignment_expression
-            left: identifier 'commandTopic'
-            operator: = '='
-            right: string_literal
-              " '"'
-              string_fragment 'house/power'
-              " '"'
-          ] ']'
-        ; [MISSING] ''
-    } '}'
+          config: thing_config
+            [ '['
+            thing_config_pair
+              key: identifier 'commandTopic'
+              = '='
+              value: metadata_value
+                string_literal
+                  " '"'
+                  string_fragment 'house/power'
+                  " '"'
+            ] ']'
+      } '}'

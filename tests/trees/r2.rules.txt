@@ -1,8 +1,33 @@
 program
-  ERROR [ERROR] 'rule "Turn on light at sunset"\nwhen\n    Channel '
-  local_variable_declaration
-    type: type_identifier 'START'
-    declarator: variable_declarator
-      name: identifier 'then'
-    ; [MISSING] ''
-  ERROR [ERROR] 'logInfo("light", "Sunset triggered")\nend'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Turn on light at sunset'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Channel 'Channel'
+      channel: string_literal
+        " '"'
+        string_fragment 'astro:sun:local:set#event'
+        " '"'
+      triggered 'triggered'
+      START 'START'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'light'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'Sunset triggered'
+            " '"'
+          ) ')'
+    end 'end'

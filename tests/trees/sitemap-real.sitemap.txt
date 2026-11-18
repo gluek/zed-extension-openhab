@@ -1,0 +1,290 @@
+program
+  line_comment '// Real-syntax sitemap from /mnt/openhab/sitemaps/'
+  line_comment '// widgets, mappings with string keys, attributes '
+  sitemap_definition
+    sitemap 'sitemap'
+    name: identifier 'home'
+    attribute: sitemap_attribute
+      key: label 'label'
+      = '='
+      value: string_literal
+        " '"'
+        string_fragment 'Heimautomatisierung'
+        " '"'
+    body: sitemap_body
+      { '{'
+      sitemap_frame
+        frame_kind: sitemap_widget_type
+          Frame 'Frame'
+        body: sitemap_body
+          { '{'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Switch 'Switch'
+            item: item 'item'
+            item: = '='
+            item: qualified_name
+              identifier 'Trigger_Scene_Living_Room'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Hue Lampen Szenen'
+                " '"'
+            attribute: sitemap_attribute
+              key: icon 'icon'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'rgb'
+                " '"'
+            attribute: sitemap_attribute
+              key: identifier 'mappings'
+              = '='
+              value: sitemap_value
+                sitemap_mappings
+                  [ '['
+                  sitemap_mapping
+                    command: decimal_integer_literal '0'
+                    = '='
+                    label: string_literal
+                      " '"'
+                      string_fragment 'Aus'
+                      " '"'
+                  , ','
+                  sitemap_mapping
+                    command: decimal_integer_literal '1'
+                    = '='
+                    label: string_literal
+                      " '"'
+                      string_fragment 'Dimmed'
+                      " '"'
+                  , ','
+                  sitemap_mapping
+                    command: decimal_integer_literal '2'
+                    = '='
+                    label: string_literal
+                      " '"'
+                      string_fragment 'Luisa Hell'
+                      " '"'
+                  , ','
+                  sitemap_mapping
+                    command: decimal_integer_literal '3'
+                    = '='
+                    label: string_literal
+                      " '"'
+                      string_fragment 'Hell'
+                      " '"'
+                  ] ']'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Switch 'Switch'
+            item: item 'item'
+            item: = '='
+            item: qualified_name
+              identifier 'Global_off'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Alles Aus'
+                " '"'
+            attribute: sitemap_attribute
+              key: icon 'icon'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'switch'
+                " '"'
+            attribute: sitemap_attribute
+              key: identifier 'mappings'
+              = '='
+              value: sitemap_value
+                sitemap_mappings
+                  [ '['
+                  sitemap_mapping
+                    command: string_literal
+                      " '"'
+                      string_fragment 'ON'
+                      " '"'
+                    = '='
+                    label: string_literal
+                      " '"'
+                      string_fragment 'Aus'
+                      " '"'
+                  ] ']'
+          } '}'
+      sitemap_widget
+        widget: sitemap_widget_type
+          Frame 'Frame'
+        attribute: sitemap_attribute
+          key: label 'label'
+          = '='
+          value: string_literal
+            " '"'
+            string_fragment 'Klima - Schlafzimmer'
+            " '"'
+        body: sitemap_body
+          { '{'
+          sitemap_frame
+            frame_kind: sitemap_widget_type
+              Text 'Text'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Thermostat'
+                " '"'
+            attribute: sitemap_attribute
+              key: icon 'icon'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'settings'
+                " '"'
+            body: sitemap_body
+              { '{'
+              sitemap_widget
+                widget: sitemap_widget_type
+                  Setpoint 'Setpoint'
+                item: item 'item'
+                item: = '='
+                item: qualified_name
+                  identifier 'bosch_thermostat_bedroom_setpoint'
+                attribute: sitemap_attribute
+                  key: label 'label'
+                  = '='
+                  value: string_literal
+                    " '"'
+                    string_fragment 'Setpoint [%.1f °C]'
+                    " '"'
+                attribute: sitemap_attribute
+                  key: icon 'icon'
+                  = '='
+                  value: string_literal
+                    " '"'
+                    string_fragment 'temperature'
+                    " '"'
+                attribute: sitemap_attribute
+                  key: identifier 'minValue'
+                  = '='
+                  value: sitemap_value
+                    decimal_floating_point_literal '8.0'
+                attribute: sitemap_attribute
+                  key: identifier 'maxValue'
+                  = '='
+                  value: sitemap_value
+                    decimal_integer_literal '25'
+                attribute: sitemap_attribute
+                  key: identifier 'step'
+                  = '='
+                  value: sitemap_value
+                    decimal_floating_point_literal '0.5'
+              sitemap_widget
+                widget: sitemap_widget_type
+                  Switch 'Switch'
+                item: item 'item'
+                item: = '='
+                item: qualified_name
+                  identifier 'bosch_thermostat_bedroom_state'
+                attribute: sitemap_attribute
+                  key: label 'label'
+                  = '='
+                  value: string_literal
+                    " '"'
+                    string_fragment 'Status'
+                    " '"'
+                attribute: sitemap_attribute
+                  key: icon 'icon'
+                  = '='
+                  value: string_literal
+                    " '"'
+                    string_fragment 'settings'
+                    " '"'
+                attribute: sitemap_attribute
+                  key: identifier 'mappings'
+                  = '='
+                  value: sitemap_value
+                    sitemap_mappings
+                      [ '['
+                      sitemap_mapping
+                        command: string_literal
+                          " '"'
+                          string_fragment 'Comfort'
+                          " '"'
+                        = '='
+                        label: string_literal
+                          " '"'
+                          string_fragment 'Comfort'
+                          " '"'
+                      , ','
+                      sitemap_mapping
+                        command: string_literal
+                          " '"'
+                          string_fragment 'Standby'
+                          " '"'
+                        = '='
+                        label: string_literal
+                          " '"'
+                          string_fragment 'Standby'
+                          " '"'
+                      , ','
+                      sitemap_mapping
+                        command: string_literal
+                          " '"'
+                          string_fragment 'Off'
+                          " '"'
+                        = '='
+                        label: string_literal
+                          " '"'
+                          string_fragment 'Off'
+                          " '"'
+                      ] ']'
+              } '}'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Switch 'Switch'
+            item: item 'item'
+            item: = '='
+            item: qualified_name
+              identifier 'gSchlafen_Temp'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Temperature [%.1f °C]'
+                " '"'
+            attribute: sitemap_attribute
+              key: icon 'icon'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'temperature'
+                " '"'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Switch 'Switch'
+            item: item 'item'
+            item: = '='
+            item: qualified_name
+              identifier 'gSchlafen_Hum'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Humidity [%.1f]'
+                " '"'
+            attribute: sitemap_attribute
+              key: icon 'icon'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'humidity'
+                " '"'
+          } '}'
+      } '}'

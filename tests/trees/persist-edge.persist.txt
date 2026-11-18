@@ -1,50 +1,80 @@
 program
   line_comment '// Edge-case persist: strategy aliases, wildcards,'
-  ERROR [ERROR] 'Strategies'
-  block
-    { '{'
-    labeled_statement
-      identifier 'everyHour'
-      : ':'
-      expression_statement
+  persist_section
+    persist_strategies_section
+      Strategies 'Strategies'
+      { '{'
+      persist_strategy
+        name: identifier 'everyHour'
+        : ':'
         string_literal
           " '"'
           string_fragment '0 0 * * * ?'
           " '"'
-        ; [MISSING] ''
-    labeled_statement
-      identifier 'everyDay'
-      : ':'
-      expression_statement
+      persist_strategy
+        name: identifier 'everyDay'
+        : ':'
         string_literal
           " '"'
           string_fragment '0 0 0 * * ?'
           " '"'
-        ; [MISSING] ''
-    expression_statement
-      assignment_expression
-        left: identifier 'everyMonth'
-        ERROR [ERROR] ': "0 0 0 1 * ?"\n    default'
-        operator: = '='
-        right: string_literal
+      persist_strategy
+        name: identifier 'everyMonth'
+        : ':'
+        string_literal
+          " '"'
+          string_fragment '0 0 0 1 * ?'
+          " '"'
+      persist_strategy
+        default 'default'
+        = '='
+        string_literal
           " '"'
           string_fragment 'everyDay'
           " '"'
-      ; [MISSING] ''
-    } '}'
-  local_variable_declaration
-    type: type_identifier 'Items'
-    ERROR [ERROR] '{'
-    declarator: variable_declarator
-      name: identifier 'Kitchen_Light'
-    , ','
-    declarator: variable_declarator
-      name: identifier 'Main_Switch'
-      ERROR [ERROR] ': strategy'
-      = '='
-      value: identifier 'everyChange'
-    , ','
-    declarator: variable_declarator
-      name: identifier 'restoreOnStartup'
-    ; [MISSING] ''
-  ERROR [ERROR] 'gLights* : strategy = everyHour\n    Outdoor* : st'
+      } '}'
+  persist_section
+    persist_items_section
+      Items 'Items'
+      { '{'
+      persist_config
+        items: persist_item_pattern
+          name: identifier 'Kitchen_Light'
+        items: , ','
+        items: persist_item_pattern
+          name: identifier 'Main_Switch'
+        : ':'
+        strategy 'strategy'
+        = '='
+        strategies: persist_strategy_name
+          identifier 'everyChange'
+        strategies: , ','
+        strategies: persist_strategy_name
+          restoreOnStartup 'restoreOnStartup'
+      persist_config
+        items: persist_item_pattern
+          name: identifier 'gLights'
+          * '*'
+        : ':'
+        strategy 'strategy'
+        = '='
+        strategies: persist_strategy_name
+          identifier 'everyHour'
+      persist_config
+        items: persist_item_pattern
+          name: identifier 'Outdoor'
+          * '*'
+        : ':'
+        strategy 'strategy'
+        = '='
+        strategies: persist_strategy_name
+          identifier 'everyDay'
+      persist_config
+        items: persist_item_pattern
+          name: * '*'
+        : ':'
+        strategy 'strategy'
+        = '='
+        strategies: persist_strategy_name
+          identifier 'default'
+      } '}'

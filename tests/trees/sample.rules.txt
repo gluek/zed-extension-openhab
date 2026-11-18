@@ -19,119 +19,102 @@ program
       name: identifier 'ScriptServiceUtil'
     ; ';'
   line_comment '// Rules'
-  expression_statement
-    identifier 'rule'
-    ; [MISSING] ''
-  ERROR [ERROR] '"Turn on light at sunset"\nwhen\n    Channel "astr'
-  local_variable_declaration
-    type: type_identifier 'START'
-    declarator: variable_declarator
-      name: identifier 'then'
-    ; [MISSING] ''
-  expression_statement
-    method_invocation
-      name: identifier 'logInfo'
-      arguments: argument_list
-        ( '('
-        string_literal
-          " '"'
-          string_fragment 'light'
-          " '"'
-        , ','
-        string_literal
-          " '"'
-          string_fragment 'Sunset triggered'
-          " '"'
-        ) ')'
-    ; [MISSING] ''
-  if_statement
-    if 'if'
-    condition: parenthesized_expression
-      ( '('
-      binary_expression
-        left: field_access
-          object: identifier 'Astro_Sun_Phase'
-          . '.'
-          field: identifier 'state'
-        operator: == '=='
-        right: string_literal
-          " '"'
-          string_fragment 'SET'
-          " '"'
-      ) ')'
-    consequence: block
-      { '{'
-      expression_statement
-        method_invocation
-          object: identifier 'Kitchen_Light'
-          . '.'
-          name: identifier 'sendCommand'
-          arguments: argument_list
-            ( '('
-            identifier 'ON'
-            ) ')'
-        ; [MISSING] ''
-      } '}'
-    else 'else'
-    alternative: block
-      { '{'
-      expression_statement
-        array_access
-          array: field_access
-            object: field_access
-              object: identifier 'gLights'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Turn on light at sunset'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Channel 'Channel'
+      channel: string_literal
+        " '"'
+        string_fragment 'astro:sun:local:set#event'
+        " '"'
+      triggered 'triggered'
+      START 'START'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'light'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'Sunset triggered'
+            " '"'
+          ) ')'
+      if_statement
+        if 'if'
+        condition: parenthesized_expression
+          ( '('
+          binary_expression
+            left: field_access
+              object: identifier 'Astro_Sun_Phase'
               . '.'
-              field: identifier 'members'
+              field: identifier 'state'
+            operator: == '=='
+            right: string_literal
+              " '"'
+              string_fragment 'SET'
+              " '"'
+          ) ')'
+        consequence: block
+          { '{'
+          oh_field_call_statement
+            object: identifier 'Kitchen_Light'
             . '.'
-            field: identifier 'forEach'
-          [ '['
-          index: binary_expression
-            left: identifier 'l'
-            operator: | '|'
-            right: method_invocation
-              object: identifier 'l'
-              . '.'
-              name: identifier 'sendCommand'
-              arguments: argument_list
-                ( '('
-                identifier 'OFF'
-                ) ')'
-          ] ']'
-        ; [MISSING] ''
-      } '}'
-  local_variable_declaration
-    type: type_identifier 'end'
-    declarator: variable_declarator
-      name: identifier 'rule'
-    ; [MISSING] ''
-  ERROR [ERROR] '"Averaged temperature"\nwhen\n    Item'
-  local_variable_declaration
-    type: type_identifier 'Weather_Temperature'
-    declarator: variable_declarator
-      name: identifier 'changed'
-    ; [MISSING] ''
-  local_variable_declaration
-    type: type_identifier 'then'
-    declarator: variable_declarator
-      name: identifier 'val'
-    ; [MISSING] ''
-  local_variable_declaration
-    type: type_identifier 'Number'
-    declarator: variable_declarator
-      name: identifier 'avg'
-      = '='
-      ERROR [ERROR] 'Weather_Temperature.state as'
-      value: binary_expression
-        left: binary_expression
-          left: identifier 'QuantityType'
-          operator: < '<'
-          right: identifier 'Number'
-        operator: > '>'
-        ERROR [ERROR] 'var String'
-        right: assignment_expression
-          left: identifier 'msg'
-          operator: = '='
-          right: method_invocation
+            name: identifier 'sendCommand'
+            arguments: argument_list
+              ( '('
+              identifier 'ON'
+              ) ')'
+          } '}'
+        else 'else'
+        alternative: bridge_body
+          { '{'
+          ERROR [ERROR] 'gLights.members.forEach[ l | l.sendCommand(OFF) ]'
+          } '}'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Averaged temperature'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Item 'Item'
+      item: identifier 'Weather_Temperature'
+      changed 'changed'
+    then 'then'
+    body: rule_body
+      oh_var_declaration
+        keyword: val 'val'
+        type: oh_var_type
+          Number 'Number'
+        name: identifier 'avg'
+        = '='
+        value: oh_var_value
+          field_access
+            object: identifier 'Weather_Temperature'
+            . '.'
+            field: identifier 'state'
+      ERROR [ERROR] 'as QuantityType<Number>'
+      oh_var_declaration
+        keyword: var 'var'
+        type: oh_var_type
+          String 'String'
+        name: identifier 'msg'
+        = '='
+        value: oh_var_value
+          method_invocation
             object: identifier 'String'
             . '.'
             name: identifier 'format'
@@ -144,105 +127,140 @@ program
               , ','
               identifier 'avg'
               ) ')'
-    ; [MISSING] ''
-  expression_statement
-    method_invocation
-      name: identifier 'logInfo'
-      arguments: argument_list
-        ( '('
-        string_literal
-          " '"'
-          string_fragment 'weather'
-          " '"'
-        , ','
-        identifier 'msg'
-        ) ')'
-    ; [MISSING] ''
-  local_variable_declaration
-    type: type_identifier 'end'
-    declarator: variable_declarator
-      name: identifier 'rule'
-    ; [MISSING] ''
-  ERROR [ERROR] '"Timer example"\nwhen'
-  local_variable_declaration
-    type: type_identifier 'Time'
-    declarator: variable_declarator
-      name: identifier 'cron'
-    ; [MISSING] ''
-  ERROR [ERROR] '"0 0/5 * * * ?"\nthen'
-  local_variable_declaration
-    type: type_identifier 'val'
-    declarator: variable_declarator
-      name: identifier 'Timer'
-      ERROR [ERROR] 't'
-      = '='
-      value: method_invocation
-        name: identifier 'createTimer'
+      oh_call_statement
+        name: identifier 'logInfo'
         arguments: argument_list
           ( '('
-          binary_expression
-            left: method_invocation
-              object: identifier 'now'
-              . '.'
-              name: identifier 'plusSeconds'
-              arguments: argument_list
-                ( '('
-                decimal_integer_literal '30'
-                ) ')'
-            ERROR [ERROR] ', ['
-            operator: | '|'
-            ERROR [ERROR] 'logInfo("timer", "fired")'
-            right: assignment_expression
-              left: identifier 'was_kitchen_light_on'
-              operator: = '='
-              right: true 'true'
-          ERROR [ERROR] ']'
+          string_literal
+            " '"'
+            string_fragment 'weather'
+            " '"'
+          , ','
+          identifier 'msg'
           ) ')'
-    ; [MISSING] ''
-  if_statement
-    if 'if'
-    condition: parenthesized_expression
-      ( '('
-      binary_expression
-        left: identifier 't'
-        operator: != '!='
-        ERROR [ERROR] '='
-        right: null_literal 'null'
-      ) ')'
-    consequence: block
-      { '{'
-      expression_statement
-        method_invocation
-          object: identifier 't'
-          . '.'
-          name: identifier 'cancel'
-          arguments: argument_list
-            ( '('
-            ) ')'
-        ; [MISSING] ''
-      } '}'
+    end 'end'
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Timer example'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Time 'Time'
+      cron 'cron'
+      cron: string_literal
+        " '"'
+        string_fragment '0 0/5 * * * ?'
+        " '"'
+    then 'then'
+    body: rule_body
+      oh_var_declaration
+        keyword: val 'val'
+        type: oh_var_type
+          Timer 'Timer'
+        name: identifier 't'
+        = '='
+        value: oh_var_value
+          method_invocation
+            name: identifier 'createTimer'
+            arguments: argument_list
+              ( '('
+              binary_expression
+                left: method_invocation
+                  object: identifier 'now'
+                  . '.'
+                  name: identifier 'plusSeconds'
+                  arguments: argument_list
+                    ( '('
+                    decimal_integer_literal '30'
+                    ) ')'
+                ERROR [ERROR] ', ['
+                operator: | '|'
+                right: method_invocation
+                  name: identifier 'logInfo'
+                  arguments: argument_list
+                    ( '('
+                    string_literal
+                      " '"'
+                      string_fragment 'timer'
+                      " '"'
+                    , ','
+                    string_literal
+                      " '"'
+                      string_fragment 'fired'
+                      " '"'
+                    ) ')'
+              ) [MISSING] ''
+      ERROR [ERROR] 'was_kitchen_light_on = true\n    ])'
+      if_statement
+        if 'if'
+        condition: parenthesized_expression
+          ( '('
+          binary_expression
+            left: identifier 't'
+            operator: != '!='
+            ERROR [ERROR] '='
+            right: null_literal 'null'
+          ) ')'
+        consequence: block
+          { '{'
+          oh_field_call_statement
+            object: identifier 't'
+            . '.'
+            name: identifier 'cancel'
+            arguments: argument_list
+              ( '('
+              ) ')'
+          } '}'
+    end 'end'
+  rule_declaration
+    script 'script'
+    name: string_literal
+      " '"'
+      string_fragment 'Startup script'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      System 'System'
+      event: started 'started'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'startup'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'openHAB started'
+            " '"'
+          ) ')'
+    end 'end'
+  oh_var_declaration
+    keyword: val 'val'
+    name: identifier 'java'
+  ERROR [ERROR] '.'
   local_variable_declaration
-    type: type_identifier 'end'
-    declarator: variable_declarator
-      name: identifier 'script'
-    ; [MISSING] ''
-  ERROR [ERROR] '"Startup script"\nwhen\n    System'
-  local_variable_declaration
-    type: type_identifier 'started'
-    declarator: variable_declarator
-      name: identifier 'then'
-    ; [MISSING] ''
-  ERROR [ERROR] 'logInfo("startup", "openHAB started")\nend\n\nval '
-  method_declaration
-    type_parameters: type_parameters
-      < '<'
-      type_parameter
+    type: generic_type
+      scoped_type_identifier
+        type_identifier 'util'
+        . '.'
+        type_identifier 'List'
+      type_arguments
+        < '<'
         type_identifier 'String'
-      > '>'
-    type: type_identifier 'messages'
-    ERROR [ERROR] '='
-    name: identifier 'newArrayList'
-    parameters: formal_parameters
-      ( '('
-      ) ')'
+        > '>'
+    declarator: variable_declarator
+      name: identifier 'messages'
+      = '='
+      value: method_invocation
+        name: identifier 'newArrayList'
+        arguments: argument_list
+          ( '('
+          ) ')'
     ; [MISSING] ''

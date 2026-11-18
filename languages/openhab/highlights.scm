@@ -1,23 +1,23 @@
 ; openHAB highlighting
 ;
-; Grammar: tree-sitter-java (Phase A). Every node type in this file is a Java
-; grammar node; openHAB vocabulary is matched by content on those nodes.
+; Grammar: tree-sitter-openhab (Phase B, grammar/ — a fork of tree-sitter-java
+; with openHAB DSL productions). Every DSL construct has its own named node
+; (rule_declaration, item_definition, sitemap_widget, …), so unlike Phase A no
+; keyword matching by content on identifiers is needed.
 ;
-; Zed compiles this file on top of tree-sitter-java's own queries/highlights.scm,
-; which already handles variables, methods, annotations, types, literals,
-; comments, and the real Java keywords. This file therefore only adds what the
-; Java upstream queries get wrong or miss for openHAB files. Duplicating the
-; upstream rules would create two rules per node and make themes pick
-; unpredictably.
+; Zed compiles this file on top of tree-sitter-java's own queries/highlights.scm
+; (the fork keeps the upstream rules, which already handle variables, methods,
+; annotations, types, literals, comments, and the real Java keywords). This file
+; therefore only adds what the Java upstream queries get wrong or miss for
+; openHAB files. Duplicating the upstream rules would create two rules per node
+; and make themes pick unpredictably.
 ;
-; Capture names below are restricted to the set Zed themes support, ordered
-; as "preferred @ fallback" where a more specific capture may be missing from
-; some themes: (type_identifier) @type @variable.
+; Capture names below are restricted to the set Zed themes support, ordered as
+; "preferred @ fallback" where a more specific capture may be missing from some
+; themes.
 ;
-; Everything here was verified with `tests/harness` against `tests/fixtures/`
-; (see tests/README.md). Where a construct cannot be captured at all because
-; the Java grammar buries it inside an ERROR node, a comment says so instead of
-; a query that silently never fires.
+; Everything here was verified with `tests/harness` (openHAB grammar build)
+; against `tests/fixtures/` — see tests/README.md.
 
 ; ---------------------------------------------------------------------------
 ; Functions / methods
@@ -30,6 +30,17 @@
   name: (identifier) @function.method @function)
 (method_invocation
   name: (identifier) @function.method @function)
+
+; openHAB semicolon-less statements in rule bodies: `logInfo(…)`,
+; `A.sendCommand(ON)`, `Thread::sleep(200)`.
+(oh_call_statement
+  name: (identifier) @function.method @function)
+(oh_field_call_statement
+  name: (identifier) @function.method @function)
+(oh_lambda_call
+  name: (identifier) @function.method @function)
+(oh_method_call_statement
+  name: (identifier) @function.method @function)
 (super) @function.builtin @keyword
 
 ; ---------------------------------------------------------------------------
@@ -40,11 +51,6 @@
 ; scoped_identifier nodes. Upstream only types an uppercase-leading *scope*
 ; segment, so the imported type itself is left as a variable. openHAB users
 ; scan imports by the last segment, so make that one a type.
-;
-; Only imports terminated by `;` (or the last construct in the file) are
-; parsed as import_declaration; a semicolon-less import followed by another
-; statement becomes one ERROR node spanning the rest of the file and nothing
-; inside it can be captured. See plan.md §9.
 
 (import_declaration
   (scoped_identifier
@@ -53,38 +59,123 @@
   (identifier) @type)
 
 ; ---------------------------------------------------------------------------
-; openHAB type vocabulary
+; openHAB DSL keywords — now real grammar tokens, no content matching needed
 ; ---------------------------------------------------------------------------
 
-; Item types (`.items`), thing types (`.things`); they appear as bare
-; identifiers, so match them by name.
-((type_identifier) @type.builtin @type
- (#match? @type.builtin "^(Color|Contact|DateTime|Dimmer|Group|Location|Number|Player|Rollershutter|String|Switch|Image|Call|StringList|QuantityType|DecimalType)$"))
+(rule_declaration "rule" @keyword)
+(rule_declaration "script" @keyword)
+(rule_declaration "when" @keyword)
+(rule_declaration "then" @keyword)
+(rule_declaration "end" @keyword)
 
-; Sitemap widget elements.
-((type_identifier) @type.builtin @type
- (#match? @type.builtin "^(Frame|Default|Text|Selection|Setpoint|Slider|Colorpicker|Chart|Webview|Video|Mapview)$"))
+; Rule triggers: `Item … changed`, `Member of(…) …`, `System started`,
+; `Time cron "…"`, `Channel "…" triggered`.
+(trigger_condition "Item" @keyword)
+(trigger_condition "Member" @keyword)
+(trigger_condition "of" @keyword)
+(trigger_condition "Thing" @keyword)
+(trigger_condition "System" @keyword)
+(trigger_condition "Time" @keyword)
+(trigger_condition "Channel" @keyword)
+(trigger_condition "changed" @keyword)
+(trigger_condition "received" @keyword)
+(trigger_condition "updated" @keyword)
+(trigger_condition "command" @keyword)
+(trigger_condition "update" @keyword)
+(trigger_condition "from" @keyword)
+(trigger_condition "to" @keyword)
+(trigger_condition "triggered" @keyword)
+(trigger_condition "cron" @keyword)
+(trigger_condition "is" @keyword)
+(trigger_condition "started" @keyword)
+(trigger_condition "shuts" @keyword)
+(trigger_condition "shutdown" @keyword)
+; `or` / `and` join trigger conditions; they are anonymous children of the
+; inlined trigger list, so they cannot be captured under trigger_condition.
+"or" @keyword
+"and" @keyword
+(trigger_condition "START" @constant.builtin)
+(trigger_condition "STOP" @constant.builtin)
+(trigger_condition "EVENT" @constant.builtin)
 
-; Units of measurement, e.g. `Number:Temperature`, `°C`, `kWh`.
-((type_identifier) @type
- (#match? @type "[°]|^(kWh|kW|W|Wh|V|mV|A|mA|%|Hz|kHz|MHz|l|ml|m|cm|mm|km|m2|m3|s|min|h|d|L|kg|g|Pa|hPa|mbar|bar|lux|dB|K)$"))
+; `val` / `var` declarations in rule bodies.
+(oh_var_declaration keyword: "val" @keyword.storage @keyword)
+(oh_var_declaration keyword: "var" @keyword.storage @keyword)
+(oh_var_type) @type.builtin @type
 
-; `.items` item types are already `type_identifier`s in most positions and are
-; styled by the vocabulary rules above. Two shapes escape those rules because
-; Java makes them plain identifiers:
-;
-;   Group:Number:AVG gTemperature …   -> labeled_statement > identifier
-;   Group:Number:SUM gEnergy …       -> labeled_statement > labeled_statement
-;
-; Only the leading segment of a nested label chain reaches the labeled_statement
-; itself, hence the extra rule below.
-((labeled_statement
-  (identifier) @type.builtin @type)
- (#match? @type.builtin "^(Group|Number|String|Switch|Dimmer|Color|DateTime|Contact|Player|Image|Location|Rollershutter|Call)$"))
+; `(x as DecimalType)` cast.
+(oh_as_cast "as" @keyword)
 
-; `Number:Temperature`, `Number:Power` (no third segment, no trailing value
-; type) never become a labeled_statement; they collapse into an ERROR node's
-; sibling identifiers and cannot be captured reliably in Phase A.
+; ---------------------------------------------------------------------------
+; .items
+; ---------------------------------------------------------------------------
+
+(item_definition
+  type: (item_type
+    base: (item_type_base) @type.builtin @type))
+(item_type sub: (identifier) @type)
+(item_type sub: (aggregation_word) @type.builtin @type)
+(aggregation_function name: (aggregation_word) @function.builtin @keyword)
+
+(item_definition name: (identifier) @variable)
+(item_definition label: (_) @string)
+(item_icon name: (identifier) @string.special @string)
+(group_list (identifier) @variable)
+(tag_list (string_literal) @string)
+(tag_list (single_quoted_string) @string)
+
+; Metadata block `{ channel="…", stateDescription { … } }`.
+(metadata_entry key: (metadata_key) @property)
+(metadata_namespaced_key name: (identifier) @property)
+(metadata_entry value: (metadata_value) @string)
+
+; ---------------------------------------------------------------------------
+; .things
+; ---------------------------------------------------------------------------
+
+(thing_definition kind: "Thing" @keyword)
+(thing_definition kind: "Bridge" @keyword)
+(thing_uid binding: (identifier) @type)
+(thing_uid_segment) @variable
+(thing_definition label: (_) @string)
+(thing_config_pair key: (identifier) @property)
+(thing_config_pair value: (metadata_value) @string)
+(channel_section "Channels" @keyword)
+(channel_definition "Type" @keyword)
+(channel_type) @type.builtin @type
+(channel_definition unit: (identifier) @type)
+(channel_definition id: (identifier) @variable)
+(channel_definition label: (_) @string)
+
+; ---------------------------------------------------------------------------
+; .sitemap
+; ---------------------------------------------------------------------------
+
+(sitemap_definition "sitemap" @keyword)
+(sitemap_definition name: (identifier) @variable)
+(sitemap_frame frame_kind: (sitemap_widget_type) @type.builtin @type)
+(sitemap_widget widget: (sitemap_widget_type) @type.builtin @type)
+(sitemap_widget item: (qualified_name) @variable)
+(sitemap_attribute key: "label" @property)
+(sitemap_attribute key: "icon" @property)
+(sitemap_attribute key: (identifier) @property)
+(sitemap_attribute value: (string_literal) @string)
+(sitemap_attribute value: (single_quoted_string) @string)
+(sitemap_mapping label: (_) @string)
+
+; ---------------------------------------------------------------------------
+; .persist
+; ---------------------------------------------------------------------------
+
+(persist_strategies_section "Strategies" @keyword)
+(persist_items_section "Items" @keyword)
+(persist_strategy name: (identifier) @variable)
+(persist_strategy "default" @keyword)
+(persist_strategy (string_literal) @string)
+(persist_item_pattern name: (identifier) @variable)
+(persist_strategy_name (identifier) @variable)
+(persist_strategy_name "restoreOnStartup" @constant.builtin)
+(persist_config "strategy" @property)
 
 ; ---------------------------------------------------------------------------
 ; Constants
@@ -93,43 +184,14 @@
 ; Builtins
 
 (this) @variable.builtin @variable
+(null_literal) @constant.builtin
+(true) @constant.builtin
+(false) @constant.builtin
 
-; ---------------------------------------------------------------------------
-; openHAB DSL vocabulary — matched by content on identifiers.
-; ---------------------------------------------------------------------------
-;
-; NOTE: a predicate must reference the capture it is attached to; naming a
-; different capture silently disables the filter. Also note that predicates
-; attached to an alternation `[(a) (b)]` are ignored by tree-sitter here, which
-; is why the two node types below are written as separate patterns.
-;
-; The same word can appear as either node type depending on position: `when`
-; parses as a `type_identifier` in a rule body, `val`/`var` as `type_identifier`
-; when they start a declaration, but as `identifier` elsewhere (`end` in
-; `sample.rules` is a `type_identifier` in three of four rules). Both node
-; types are therefore matched.
-;
-; Known limitation: these rules match the word anywhere it survives as a named
-; node, so an item literally named e.g. `Channel` highlights as a keyword. The
-; parsing is too broken to express "keyword position" reliably, and Phase B
-; (a purpose-built grammar) is the fix.
-
-((identifier) @keyword
- (#match? @keyword "^(rule|when|then|end|sitemap|frame|channel|item|thing|bridge|every|via|strategies|items)$"))
-((type_identifier) @keyword
- (#match? @keyword "^(rule|when|then|end|sitemap|frame|channel|item|thing|bridge|every|via|strategies|items)$"))
-
-; Storage modifiers: openHAB's `val`/`var`, plus rule-level `def`/`override`.
-((type_identifier) @keyword.storage @keyword
- (#match? @keyword.storage "^(val|var|def|override|threadsafe)$"))
-((identifier) @keyword.storage @keyword
- (#match? @keyword.storage "^(val|var|def|override|threadsafe)$"))
-
-; Rule trigger vocabulary (`when Item A changed`, `Channel … triggered`,
-; `System started`, `Time cron`). Only capitalized forms are listed so that
-; ordinary identifiers such as a method called `started` are not swept in.
-((identifier) @keyword
- (#match? @keyword "^(Item|Thing|System|Channel|Time|cron|changed|started|triggered|received|command)$"))
+; `ON` / `OFF` in trigger states and commands are plain identifiers in the
+; grammar; match them by content so they read as builtins, not variables.
+((identifier) @constant.builtin @constant
+ (#match? @constant "^(ON|OFF|NULL|UNDEF)$"))
 
 ; ---------------------------------------------------------------------------
 ; Punctuation and operators
@@ -139,3 +201,7 @@
 ; files use heavily are added; brackets and `.` come from the grammar itself.
 
 ["," ";"] @punctuation.delimiter
+
+; `->` in map entries and `::` in method references.
+("->") @operator
+("::") @operator

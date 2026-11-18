@@ -1,0 +1,216 @@
+program
+  line_comment '// Real-syntax things from /mnt/openhab/things/mqt'
+  line_comment '// the next line, `Thing topic name` with a space-'
+  line_comment '// unit-suffixed channel types (`Type number : tem'
+  thing_definition
+    kind: Bridge 'Bridge'
+    uid: thing_uid
+      binding: identifier 'mqtt'
+      : ':'
+      segment: thing_uid_segment 'broker'
+      : ':'
+      segment: thing_uid_segment 'nuc'
+    label: string_literal
+      " '"'
+      string_fragment 'MQTT Broker NUC'
+      " '"'
+    config: thing_config
+      [ '['
+      thing_config_pair
+        key: identifier 'host'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment '192.168.0.8'
+            " '"'
+      , ','
+      thing_config_pair
+        key: identifier 'port'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment '1883'
+            " '"'
+      , ','
+      thing_config_pair
+        key: identifier 'secure'
+        = '='
+        value: metadata_value
+          false 'false'
+      , ','
+      thing_config_pair
+        key: identifier 'clientID'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment 'openhab'
+            " '"'
+      , ','
+      thing_config_pair
+        key: identifier 'user'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            " '"'
+      , ','
+      thing_config_pair
+        key: identifier 'password'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            " '"'
+      ] ']'
+    body: bridge_body
+      { '{'
+      thing_definition
+        kind: Thing 'Thing'
+        uid: thing_uid
+          binding: identifier 'topic'
+          segment: thing_uid_segment 'logging'
+        label: string_literal
+          " '"'
+          string_fragment 'Zigbee2MQTT Logging'
+          " '"'
+        body: bridge_body
+          { '{'
+          channel_section
+            Channels 'Channels'
+            : ':'
+            channel_definition
+              Type 'Type'
+              channel_type: channel_type
+                string 'string'
+              : ':'
+              id: identifier 'mqtt_logging'
+              label: string_literal
+                " '"'
+                string_fragment 'MQTT Logging'
+                " '"'
+              config: thing_config
+                [ '['
+                thing_config_pair
+                  key: identifier 'stateTopic'
+                  = '='
+                  value: metadata_value
+                    string_literal
+                      " '"'
+                      string_fragment 'zigbee2mqtt/bridge/logging'
+                      " '"'
+                ] ']'
+          } '}'
+      thing_definition
+        kind: Thing 'Thing'
+        uid: thing_uid
+          binding: identifier 'topic'
+          segment: thing_uid_segment 'sonoff_temphum_bedroom_shelf'
+        label: string_literal
+          " '"'
+          string_fragment 'Sonoff Temp/Hum Schlafzimmer Regal'
+          " '"'
+        body: bridge_body
+          { '{'
+          channel_section
+            Channels 'Channels'
+            : ':'
+            channel_definition
+              Type 'Type'
+              channel_type: channel_type
+                number 'number'
+              : ':'
+              id: identifier 'temperature'
+              label: string_literal
+                " '"'
+                string_fragment 'Schlafzimmer Temperatur Regal'
+                " '"'
+              config: thing_config
+                [ '['
+                thing_config_pair
+                  key: identifier 'stateTopic'
+                  = '='
+                  value: metadata_value
+                    string_literal
+                      " '"'
+                      string_fragment 'zigbee2mqtt/sonoff_temphum_bedroom_shelf/temperatu'
+                      " '"'
+                ] ']'
+            channel_definition
+              Type 'Type'
+              channel_type: channel_type
+                number 'number'
+              : ':'
+              id: identifier 'humidity'
+              label: string_literal
+                " '"'
+                string_fragment 'Schlafzimmer Luftfeuchtigkeit Regal'
+                " '"'
+              config: thing_config
+                [ '['
+                thing_config_pair
+                  key: identifier 'stateTopic'
+                  = '='
+                  value: metadata_value
+                    string_literal
+                      " '"'
+                      string_fragment 'zigbee2mqtt/sonoff_temphum_bedroom_shelf/humidity'
+                      " '"'
+                ] ']'
+            channel_definition
+              Type 'Type'
+              channel_type: channel_type
+                number 'number'
+              : ':'
+              id: identifier 'battery'
+              label: string_literal
+                " '"'
+                string_fragment 'Schlafzimmer Batterie Regal'
+                " '"'
+              config: thing_config
+                [ '['
+                thing_config_pair
+                  key: identifier 'stateTopic'
+                  = '='
+                  value: metadata_value
+                    string_literal
+                      " '"'
+                      string_fragment 'zigbee2mqtt/sonoff_temphum_bedroom_shelf/battery'
+                      " '"'
+                ] ']'
+          } '}'
+      } '}'
+  thing_definition
+    kind: Thing 'Thing'
+    uid: thing_uid
+      binding: identifier 'exec'
+      : ':'
+      segment: thing_uid_segment 'command'
+      : ':'
+      segment: thing_uid_segment 'poweroutletA-control'
+    label: string_literal
+      " '"'
+      string_fragment 'PowerOutlet A Control'
+      " '"'
+    config: thing_config
+      [ '['
+      thing_config_pair
+        key: identifier 'commandOn'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment '…'
+            " '"'
+      , ','
+      thing_config_pair
+        key: identifier 'commandOff'
+        = '='
+        value: metadata_value
+          string_literal
+            " '"'
+            string_fragment '…'
+            " '"'
+      ] ']'

@@ -1,149 +1,175 @@
 program
   line_comment '// Edge-case sitemap: nested frames, widget variet'
-  local_variable_declaration
-    type: type_identifier 'sitemap'
-    ERROR [ERROR] 'main'
-    declarator: variable_declarator
-      name: identifier 'label'
+  sitemap_definition
+    sitemap 'sitemap'
+    name: identifier 'main'
+    attribute: sitemap_attribute
+      key: label 'label'
       = '='
       value: string_literal
         " '"'
         string_fragment 'Main'
         " '"'
-    ; [MISSING] ''
-  block
-    { '{'
-    local_variable_declaration
-      type: type_identifier 'Frame'
-      declarator: variable_declarator
-        name: identifier 'label'
-        = '='
-        value: string_literal
-          " '"'
-          string_fragment 'Overview'
-          " '"'
-      ; [MISSING] ''
-    block
+    body: sitemap_body
       { '{'
-      local_variable_declaration
-        type: type_identifier 'Text'
-        declarator: variable_declarator
-          name: identifier 'item'
-          = '='
-          ERROR [ERROR] 'Outdoor'
-          value: assignment_expression
-            left: identifier 'label'
-            operator: = '='
-            right: string_literal
-              " '"'
-              string_fragment 'Outdoor [%.1f °C]'
-              " '"'
-        ; [MISSING] ''
-      local_variable_declaration
-        type: type_identifier 'Switch'
-        declarator: variable_declarator
-          name: identifier 'item'
-          = '='
-          ERROR [ERROR] 'Main_Switch'
-          value: assignment_expression
-            left: identifier 'label'
-            operator: = '='
-            right: string_literal
-              " '"'
-              string_fragment 'Main Switch [%s]'
-              " '"'
-        ; [MISSING] ''
-      expression_statement
-        assignment_expression
-          left: identifier 'icon'
-          operator: = '='
-          right: string_literal
-            " '"'
-            string_fragment 'switch'
-            " '"'
-        ; [MISSING] ''
-      ERROR [ERROR] 'Selection item=Mode label="Mode" mappings=[0="Off"'
-      local_variable_declaration
-        type: type_identifier 'Chart'
-        declarator: variable_declarator
-          name: identifier 'item'
-          = '='
-          ERROR [ERROR] 'Outdoor'
-          value: assignment_expression
-            left: identifier 'label'
-            operator: = '='
-            right: string_literal
-              " '"'
-              string_fragment 'Last 4 Days'
-              " '"'
-        ; [MISSING] ''
-      expression_statement
-        assignment_expression
-          left: identifier 'period'
-          operator: = '='
-          right: decimal_floating_point_literal '4D'
-        ; [MISSING] ''
-      } '}'
-    local_variable_declaration
-      type: type_identifier 'Frame'
-      declarator: variable_declarator
-        name: identifier 'label'
-        = '='
-        value: string_literal
-          " '"'
-          string_fragment 'Media'
-          " '"'
-      ; [MISSING] ''
-    block
-      { '{'
-      local_variable_declaration
-        type: type_identifier 'Frame'
-        declarator: variable_declarator
-          name: identifier 'label'
+      sitemap_frame
+        frame_kind: sitemap_widget_type
+          Frame 'Frame'
+        attribute: sitemap_attribute
+          key: label 'label'
           = '='
           value: string_literal
             " '"'
-            string_fragment 'Videos'
+            string_fragment 'Overview'
             " '"'
-        ; [MISSING] ''
-      block
-        { '{'
-        local_variable_declaration
-          type: type_identifier 'Webview'
-          declarator: variable_declarator
-            name: identifier 'url'
-            = '='
-            value: string_literal
-              " '"'
-              string_fragment 'http://example.com/cam'
-              " '"'
-          ; [MISSING] ''
-        expression_statement
-          assignment_expression
-            left: identifier 'height'
-            operator: = '='
-            right: decimal_integer_literal '10'
-          ; [MISSING] ''
-        } '}'
-      local_variable_declaration
-        type: type_identifier 'Mapview'
-        declarator: variable_declarator
-          name: identifier 'item'
+        body: sitemap_body
+          { '{'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Text 'Text'
+            item: item 'item'
+            item: = '='
+            item: qualified_name
+              identifier 'Outdoor'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Outdoor [%.1f °C]'
+                " '"'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Switch 'Switch'
+            item: item 'item'
+            item: = '='
+            item: qualified_name
+              identifier 'Main_Switch'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Main Switch [%s]'
+                " '"'
+            attribute: sitemap_attribute
+              key: icon 'icon'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'switch'
+                " '"'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Selection 'Selection'
+            item: item 'item'
+            item: = '='
+            item: qualified_name
+              identifier 'Mode'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Mode'
+                " '"'
+            attribute: sitemap_attribute
+              key: identifier 'mappings'
+              = '='
+              value: sitemap_value
+                sitemap_mappings
+                  [ '['
+                  sitemap_mapping
+                    command: decimal_integer_literal '0'
+                    = '='
+                    label: string_literal
+                      " '"'
+                      string_fragment 'Off'
+                      " '"'
+                  , ','
+                  sitemap_mapping
+                    command: decimal_integer_literal '1'
+                    = '='
+                    label: string_literal
+                      " '"'
+                      string_fragment 'On'
+                      " '"'
+                  , ','
+                  sitemap_mapping
+                    command: decimal_integer_literal '2'
+                    = '='
+                    label: string_literal
+                      " '"'
+                      string_fragment 'Auto'
+                      " '"'
+                  ] ']'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Chart 'Chart'
+            item: item 'item'
+            item: = '='
+            item: qualified_name
+              identifier 'Outdoor'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Last 4 Days'
+                " '"'
+            attribute: sitemap_attribute
+              key: identifier 'period'
+              = '='
+              value: sitemap_value
+                decimal_floating_point_literal '4D'
+          } '}'
+      sitemap_widget
+        widget: sitemap_widget_type
+          Frame 'Frame'
+        attribute: sitemap_attribute
+          key: label 'label'
           = '='
-          ERROR [ERROR] 'Garage'
-          value: assignment_expression
-            left: identifier 'label'
-            operator: = '='
-            right: string_literal
-              " '"'
-              string_fragment 'Garage Map'
-              " '"'
-        ; [MISSING] ''
-      expression_statement
-        assignment_expression
-          left: identifier 'height'
-          operator: = '='
-          right: decimal_integer_literal '5'
-        ; [MISSING] ''
+          value: string_literal
+            " '"'
+            string_fragment 'Media'
+            " '"'
+        body: sitemap_body
+          { '{'
+          sitemap_widget
+            widget: sitemap_widget_type
+              Frame 'Frame'
+            attribute: sitemap_attribute
+              key: label 'label'
+              = '='
+              value: string_literal
+                " '"'
+                string_fragment 'Videos'
+                " '"'
+            ERROR [ERROR] '{\n            Webview url="http://example.com/cam'
+            attribute: sitemap_attribute
+              key: identifier 'height'
+              = '='
+              value: sitemap_value
+                decimal_integer_literal '10'
+          } '}'
+      sitemap_widget
+        widget: sitemap_widget_type
+          Mapview 'Mapview'
+        item: item 'item'
+        item: = '='
+        item: qualified_name
+          identifier 'Garage'
+        attribute: sitemap_attribute
+          key: label 'label'
+          = '='
+          value: string_literal
+            " '"'
+            string_fragment 'Garage Map'
+            " '"'
+        attribute: sitemap_attribute
+          key: identifier 'height'
+          = '='
+          value: sitemap_value
+            decimal_integer_literal '5'
       } '}'
-    } '}'
+  ERROR [ERROR] '}'

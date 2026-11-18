@@ -1,2 +1,83 @@
 program
-  ERROR [ERROR] 'import org.eclipse.smarthome.model.script.ScriptSe'
+  import_declaration
+    import 'import'
+    scoped_identifier
+      scope: scoped_identifier
+        scope: scoped_identifier
+          scope: scoped_identifier
+            scope: scoped_identifier
+              scope: identifier 'org'
+              . '.'
+              name: identifier 'eclipse'
+            . '.'
+            name: identifier 'smarthome'
+          . '.'
+          name: identifier 'model'
+        . '.'
+        name: identifier 'script'
+      . '.'
+      name: identifier 'ScriptServiceUtil'
+    ; [MISSING] ''
+  rule_declaration
+    rule 'rule'
+    name: string_literal
+      " '"'
+      string_fragment 'Turn on light at sunset'
+      " '"'
+    when 'when'
+    triggers: trigger_condition
+      Channel 'Channel'
+      channel: string_literal
+        " '"'
+        string_fragment 'astro:sun:local:set#event'
+        " '"'
+      triggered 'triggered'
+      START 'START'
+    then 'then'
+    body: rule_body
+      oh_call_statement
+        name: identifier 'logInfo'
+        arguments: argument_list
+          ( '('
+          string_literal
+            " '"'
+            string_fragment 'light'
+            " '"'
+          , ','
+          string_literal
+            " '"'
+            string_fragment 'Sunset triggered'
+            " '"'
+          ) ')'
+      if_statement
+        if 'if'
+        condition: parenthesized_expression
+          ( '('
+          binary_expression
+            left: field_access
+              object: identifier 'Astro_Sun_Phase'
+              . '.'
+              field: identifier 'state'
+            operator: == '=='
+            right: string_literal
+              " '"'
+              string_fragment 'SET'
+              " '"'
+          ) ')'
+        consequence: block
+          { '{'
+          oh_field_call_statement
+            object: identifier 'Kitchen_Light'
+            . '.'
+            name: identifier 'sendCommand'
+            arguments: argument_list
+              ( '('
+              identifier 'ON'
+              ) ')'
+          } '}'
+        else 'else'
+        alternative: bridge_body
+          { '{'
+          ERROR [ERROR] 'gLights.members.forEach[ l | l.sendCommand(OFF) ]'
+          } '}'
+    end 'end'

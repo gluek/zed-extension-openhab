@@ -647,6 +647,18 @@ Phase A baseline. Snapshots regenerated with the openHAB grammar:
    anyone building the extension off this machine, since `file://` only works
    locally.
 
+### Grammar repository for local development (learned from a failed Zed install)
+
+Zed **clones** the grammar `repository` and fetches the pinned `rev`, so a
+`file://` path must be a real git repo whose **root** contains `grammar.js` /
+`src/`. Pointing it at `grammar/` directly fails with
+`failed to fetch revision … in directory "…/grammars/openhab"` (the rev lives
+in the extension repo, not in `grammar/`). Fix (committed `be7b8a4`):
+`.scratch/grammar-repo` is a git mirror of `grammar/`; `extension.toml` pins
+its HEAD (`452b9f6`). After changing `grammar/`, run
+`./tests/make-grammar-mirror.sh` and pin the printed rev in `extension.toml`
+(verify mode: `./tests/make-grammar-mirror.sh <pinned-rev>`).
+
 ### Fallback
 
 Phase A stays shippable on its own: its `extension.toml` entry is kept commented

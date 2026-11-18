@@ -1,0 +1,49 @@
+// Edge-case rules: cron, System triggers, channel triggers, script block,
+// top-level val/var, lambdas, imports with and without a semicolon.
+
+import org.eclipse.smarthome.model.script.actions.Notification
+import java.util.Date;
+
+rule "Cron ping"
+when
+    Time cron "0 0/5 * * * ?"
+then
+    logInfo("cron", "tick")
+end
+
+rule "System start"
+when
+    System started
+then
+    logInfo("boot", "openHAB started")
+end
+
+rule "Switch turned on"
+when
+    Item Main_Switch changed to ON
+then
+    Kitchen_Light.sendCommand(ON)
+end
+
+rule "Sunrise"
+when
+    Channel "astro:sun:local:rise#event" triggered START
+then
+    logInfo("sun", "sunrise")
+end
+
+script "Startup script"
+when
+    System started
+then
+    logInfo("startup", "script executed")
+end
+
+val java.util.Date now = new Date()
+var String greeting = "hello"
+
+val Runnable task = [ |
+    logInfo("lambda", "anonymous lambda ran")
+]
+
+gLights.members.forEach[ member | member.sendCommand(OFF) ]

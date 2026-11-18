@@ -1,0 +1,248 @@
+program
+  import_declaration
+    import 'import'
+    scoped_identifier
+      scope: scoped_identifier
+        scope: scoped_identifier
+          scope: scoped_identifier
+            scope: scoped_identifier
+              scope: identifier 'org'
+              . '.'
+              name: identifier 'eclipse'
+            . '.'
+            name: identifier 'smarthome'
+          . '.'
+          name: identifier 'model'
+        . '.'
+        name: identifier 'script'
+      . '.'
+      name: identifier 'ScriptServiceUtil'
+    ; ';'
+  line_comment '// Rules'
+  expression_statement
+    identifier 'rule'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Turn on light at sunset"\nwhen\n    Channel "astr'
+  local_variable_declaration
+    type: type_identifier 'START'
+    declarator: variable_declarator
+      name: identifier 'then'
+    ; [MISSING] ''
+  expression_statement
+    method_invocation
+      name: identifier 'logInfo'
+      arguments: argument_list
+        ( '('
+        string_literal
+          " '"'
+          string_fragment 'light'
+          " '"'
+        , ','
+        string_literal
+          " '"'
+          string_fragment 'Sunset triggered'
+          " '"'
+        ) ')'
+    ; [MISSING] ''
+  if_statement
+    if 'if'
+    condition: parenthesized_expression
+      ( '('
+      binary_expression
+        left: field_access
+          object: identifier 'Astro_Sun_Phase'
+          . '.'
+          field: identifier 'state'
+        operator: == '=='
+        right: string_literal
+          " '"'
+          string_fragment 'SET'
+          " '"'
+      ) ')'
+    consequence: block
+      { '{'
+      expression_statement
+        method_invocation
+          object: identifier 'Kitchen_Light'
+          . '.'
+          name: identifier 'sendCommand'
+          arguments: argument_list
+            ( '('
+            identifier 'ON'
+            ) ')'
+        ; [MISSING] ''
+      } '}'
+    else 'else'
+    alternative: block
+      { '{'
+      expression_statement
+        array_access
+          array: field_access
+            object: field_access
+              object: identifier 'gLights'
+              . '.'
+              field: identifier 'members'
+            . '.'
+            field: identifier 'forEach'
+          [ '['
+          index: binary_expression
+            left: identifier 'l'
+            operator: | '|'
+            right: method_invocation
+              object: identifier 'l'
+              . '.'
+              name: identifier 'sendCommand'
+              arguments: argument_list
+                ( '('
+                identifier 'OFF'
+                ) ')'
+          ] ']'
+        ; [MISSING] ''
+      } '}'
+  local_variable_declaration
+    type: type_identifier 'end'
+    declarator: variable_declarator
+      name: identifier 'rule'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Averaged temperature"\nwhen\n    Item'
+  local_variable_declaration
+    type: type_identifier 'Weather_Temperature'
+    declarator: variable_declarator
+      name: identifier 'changed'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'then'
+    declarator: variable_declarator
+      name: identifier 'val'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'Number'
+    declarator: variable_declarator
+      name: identifier 'avg'
+      = '='
+      ERROR [ERROR] 'Weather_Temperature.state as'
+      value: binary_expression
+        left: binary_expression
+          left: identifier 'QuantityType'
+          operator: < '<'
+          right: identifier 'Number'
+        operator: > '>'
+        ERROR [ERROR] 'var String'
+        right: assignment_expression
+          left: identifier 'msg'
+          operator: = '='
+          right: method_invocation
+            object: identifier 'String'
+            . '.'
+            name: identifier 'format'
+            arguments: argument_list
+              ( '('
+              string_literal
+                " '"'
+                string_fragment 'Avg is %.1f °C'
+                " '"'
+              , ','
+              identifier 'avg'
+              ) ')'
+    ; [MISSING] ''
+  expression_statement
+    method_invocation
+      name: identifier 'logInfo'
+      arguments: argument_list
+        ( '('
+        string_literal
+          " '"'
+          string_fragment 'weather'
+          " '"'
+        , ','
+        identifier 'msg'
+        ) ')'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'end'
+    declarator: variable_declarator
+      name: identifier 'rule'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Timer example"\nwhen'
+  local_variable_declaration
+    type: type_identifier 'Time'
+    declarator: variable_declarator
+      name: identifier 'cron'
+    ; [MISSING] ''
+  ERROR [ERROR] '"0 0/5 * * * ?"\nthen'
+  local_variable_declaration
+    type: type_identifier 'val'
+    declarator: variable_declarator
+      name: identifier 'Timer'
+      ERROR [ERROR] 't'
+      = '='
+      value: method_invocation
+        name: identifier 'createTimer'
+        arguments: argument_list
+          ( '('
+          binary_expression
+            left: method_invocation
+              object: identifier 'now'
+              . '.'
+              name: identifier 'plusSeconds'
+              arguments: argument_list
+                ( '('
+                decimal_integer_literal '30'
+                ) ')'
+            ERROR [ERROR] ', ['
+            operator: | '|'
+            ERROR [ERROR] 'logInfo("timer", "fired")'
+            right: assignment_expression
+              left: identifier 'was_kitchen_light_on'
+              operator: = '='
+              right: true 'true'
+          ERROR [ERROR] ']'
+          ) ')'
+    ; [MISSING] ''
+  if_statement
+    if 'if'
+    condition: parenthesized_expression
+      ( '('
+      binary_expression
+        left: identifier 't'
+        operator: != '!='
+        ERROR [ERROR] '='
+        right: null_literal 'null'
+      ) ')'
+    consequence: block
+      { '{'
+      expression_statement
+        method_invocation
+          object: identifier 't'
+          . '.'
+          name: identifier 'cancel'
+          arguments: argument_list
+            ( '('
+            ) ')'
+        ; [MISSING] ''
+      } '}'
+  local_variable_declaration
+    type: type_identifier 'end'
+    declarator: variable_declarator
+      name: identifier 'script'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Startup script"\nwhen\n    System'
+  local_variable_declaration
+    type: type_identifier 'started'
+    declarator: variable_declarator
+      name: identifier 'then'
+    ; [MISSING] ''
+  ERROR [ERROR] 'logInfo("startup", "openHAB started")\nend\n\nval '
+  method_declaration
+    type_parameters: type_parameters
+      < '<'
+      type_parameter
+        type_identifier 'String'
+      > '>'
+    type: type_identifier 'messages'
+    ERROR [ERROR] '='
+    name: identifier 'newArrayList'
+    parameters: formal_parameters
+      ( '('
+      ) ')'
+    ; [MISSING] ''

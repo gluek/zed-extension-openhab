@@ -1,0 +1,25 @@
+program
+  local_variable_declaration
+    type: type_identifier 'Bridge'
+    ERROR [ERROR] 'hue:bridge:'
+    declarator: variable_declarator
+      name: identifier 'office'
+    ; [MISSING] ''
+  expression_statement
+    array_access
+      array: string_literal
+        " '"'
+        string_fragment 'Office Hue'
+        " '"'
+      [ '['
+      ERROR [ERROR] 'ipAddress="192.168.1.10",'
+      index: assignment_expression
+        left: identifier 'username'
+        operator: = '='
+        right: string_literal
+          " '"'
+          string_fragment 'abc'
+          " '"'
+      ] ']'
+    ; [MISSING] ''
+  ERROR [ERROR] '{\n    Thing 0210 bulb1 "Hue Bulb 1" [ lightId="1"'

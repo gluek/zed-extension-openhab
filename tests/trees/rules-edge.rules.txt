@@ -1,0 +1,154 @@
+program
+  line_comment '// Edge-case rules: cron, System triggers, channel'
+  line_comment '// top-level val/var, lambdas, imports with and wi'
+  import_declaration
+    import 'import'
+    scoped_identifier
+      scope: scoped_identifier
+        scope: scoped_identifier
+          scope: scoped_identifier
+            scope: scoped_identifier
+              scope: scoped_identifier
+                scope: identifier 'org'
+                . '.'
+                name: identifier 'eclipse'
+              . '.'
+              name: identifier 'smarthome'
+            . '.'
+            name: identifier 'model'
+          . '.'
+          name: identifier 'script'
+        . '.'
+        name: identifier 'actions'
+      . '.'
+      name: identifier 'Notification'
+    ; [MISSING] ''
+  import_declaration
+    import 'import'
+    scoped_identifier
+      scope: scoped_identifier
+        scope: identifier 'java'
+        . '.'
+        name: identifier 'util'
+      . '.'
+      name: identifier 'Date'
+    ; ';'
+  expression_statement
+    identifier 'rule'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Cron ping"\nwhen'
+  local_variable_declaration
+    type: type_identifier 'Time'
+    declarator: variable_declarator
+      name: identifier 'cron'
+    ; [MISSING] ''
+  ERROR [ERROR] '"0 0/5 * * * ?"\nthen\n    logInfo("cron", "tick")'
+  expression_statement
+    identifier 'rule'
+    ; [MISSING] ''
+  ERROR [ERROR] '"System start"\nwhen\n    System'
+  local_variable_declaration
+    type: type_identifier 'started'
+    declarator: variable_declarator
+      name: identifier 'then'
+    ; [MISSING] ''
+  expression_statement
+    method_invocation
+      name: identifier 'logInfo'
+      arguments: argument_list
+        ( '('
+        string_literal
+          " '"'
+          string_fragment 'boot'
+          " '"'
+        , ','
+        string_literal
+          " '"'
+          string_fragment 'openHAB started'
+          " '"'
+        ) ')'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'end'
+    declarator: variable_declarator
+      name: identifier 'rule'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Switch turned on"\nwhen\n    Item'
+  local_variable_declaration
+    type: type_identifier 'Main_Switch'
+    declarator: variable_declarator
+      name: identifier 'changed'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'to'
+    declarator: variable_declarator
+      name: identifier 'ON'
+    ; [MISSING] ''
+  ERROR [ERROR] 'then\n    Kitchen_Light.sendCommand(ON)\nend\n\nru'
+  expression_statement
+    identifier 'script'
+    ; [MISSING] ''
+  ERROR [ERROR] '"\nwhen\n    System started\nthen\n    logInfo("st'
+  local_variable_declaration
+    type: type_identifier 'end'
+    declarator: variable_declarator
+      name: identifier 'val'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: scoped_type_identifier
+      scoped_type_identifier
+        type_identifier 'java'
+        . '.'
+        type_identifier 'util'
+      . '.'
+      type_identifier 'Date'
+    declarator: variable_declarator
+      name: identifier 'now'
+      = '='
+      value: object_creation_expression
+        new 'new'
+        type: type_identifier 'Date'
+        arguments: argument_list
+          ( '('
+          ) ')'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'var'
+    ERROR [ERROR] 'String'
+    declarator: variable_declarator
+      name: identifier 'greeting'
+      = '='
+      value: string_literal
+        " '"'
+        string_fragment 'hello'
+        " '"'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'val'
+    declarator: variable_declarator
+      name: identifier 'Runnable'
+      ERROR [ERROR] 'task'
+      = '='
+      ERROR [ERROR] '[ |\n    logInfo("lambda", "anonymous lambda ran")'
+      value: array_access
+        array: field_access
+          object: field_access
+            object: identifier 'gLights'
+            . '.'
+            field: identifier 'members'
+          . '.'
+          field: identifier 'forEach'
+        [ '['
+        index: binary_expression
+          left: identifier 'member'
+          operator: | '|'
+          right: method_invocation
+            object: identifier 'member'
+            . '.'
+            name: identifier 'sendCommand'
+            arguments: argument_list
+              ( '('
+              identifier 'OFF'
+              ) ')'
+        ] ']'
+    ; [MISSING] ''

@@ -1,0 +1,30 @@
+program
+  import_declaration
+    import 'import'
+    scoped_identifier
+      scope: scoped_identifier
+        scope: scoped_identifier
+          scope: scoped_identifier
+            scope: scoped_identifier
+              scope: identifier 'org'
+              . '.'
+              name: identifier 'eclipse'
+            . '.'
+            name: identifier 'smarthome'
+          . '.'
+          name: identifier 'model'
+        . '.'
+        name: identifier 'script'
+      . '.'
+      name: identifier 'ScriptServiceUtil'
+    ; ';'
+  expression_statement
+    identifier 'rule'
+    ; [MISSING] ''
+  ERROR [ERROR] '"x" when'
+  local_variable_declaration
+    type: type_identifier 'Item'
+    declarator: variable_declarator
+      name: identifier 'A'
+    ; [MISSING] ''
+  ERROR [ERROR] 'changed then end'

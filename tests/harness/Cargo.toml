@@ -1,0 +1,15 @@
+[package]
+name = "harness"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tree-sitter = "0.23"
+
+[build-dependencies]
+cc = "1"
+
+# Standalone crate on purpose: it must not become part of the extension's
+# workspace/build (the extension is a cdylib for wasm).
+[workspace]

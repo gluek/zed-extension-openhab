@@ -7,7 +7,7 @@ Port the openHAB Visual Studio Code extension into a **Zed language extension** 
 
 The working directory for the new extension is [`zed/openhab-zed/`](zed/openhab-zed/) — scaffolded, installed as a **dev extension** and highlighting works in Zed. The existing VS Code extension is left untouched; we only *read* from it.
 
-**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**. Auto-complete is **not implemented yet** — the language server is registered but no server bundle ships, so it does not start (see §7).
+**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**. The query files were then **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). Auto-complete is **not implemented yet** — the language server is registered but no server bundle ships, so it does not start (see §7).
 
 ---
 
@@ -161,7 +161,7 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 | # | Milestone | Output | Validation |
 |---|---|---|---|
 | ✅ 0 | Scaffold `zed/openhab-zed` | `extension.toml`, `Cargo.toml`, `src/openhab.rs`, `languages/openhab/config.toml` | `cargo check` clean; **builds to `wasm32-wasip2`; installed & loaded in Zed** |
-| ✅ 1 | **Phase A highlighting** via `tree-sitter-java` | `highlights.scm`, `brackets.scm`, `indents.scm`, `outline.scm`, `textobjects.scm` | `tree-sitter query` compiles; captures verified on fixtures; **confirmed visually in Zed ("okayish")** |
+| ✅ 1 | **Phase A highlighting** via `tree-sitter-java` | `highlights.scm`, `brackets.scm`, `indents.scm`, `outline.scm`, `textobjects.scm` | `tests/validate-queries.sh` green; captures verified on fixtures; **confirmed visually in Zed ("okayish")** |
 | 2 | **LSP packaging** | ⚠️ *Rust wiring done, bundle missing* — needs `server/LSPServer.js`; stdio; `initializationOptions` | Completion works against a real openHAB |
 | 3 | **LSP completion polish** | context-aware completion, details/docs, casing | Manual + unit tests (`serverJS/__tests__`) |
 | 4 | **Phase B grammar** | `tree-sitter-openhab` with DSL productions; swap grammar key + `config.toml` | `tree-sitter parse` clean on fixtures; visual parity vs Phase A |
@@ -169,14 +169,12 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 
 ### Current known limitations (Phase A)
 
-- **`.rules` highlighting is partial.** The best candidates for Phase B:
-  - `when` is **not** highlighted in a bare `rule "name"` header. In type position
-    it parses as a `type_identifier` (fixed — see notes), but when the `rule` header
-    is unrecoverable the whole region becomes an `ERROR` node and `when` is
-    anonymous text inside it, so no query can reach it. Wrapping the rule body in
-    `rule "name" { … }` makes `when` highlight.
-  - Rule bodies produce many `ERROR` nodes (see notes below). Brackets/indent still work.
-- `.items` / `.things` / `.sitemap` / `.persist` are line-oriented and highlight acceptably.
+- **`.rules` highlighting is partial.** `rule`/`when`/`then`/`end` highlight when
+  their tokens survive as named nodes, which depends on how the rule body recovers
+  from parse errors; `.rules` files produce many `ERROR` nodes regardless (§9).
+  Rule headers are only outlined in files whose triggers keep them parseable.
+- `.items` / `.things` / `.sitemap` / `.persist` are line-oriented and highlight
+  acceptably; `.things` and `.persist` are mostly `ERROR` nodes by nature.
 - **The language server errors on startup** (logged once, harmless) because no server bundle ships yet — this is milestone 2, not a regression.
 
 ### Environment prerequisites (verified on this machine)
@@ -222,3 +220,156 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 | Server bundle missing at runtime | Fail gracefully; document `server/` layout |
 | LSP was VS Code–specific (`workspace/configuration`) | Switch to `initializationOptions`; test under Zed |
 | Sitemap `<`/`>` syntax hard to lex | Use `extras`/external token in Phase B grammar |
+| Query changes made blind (no local parser run) | Validate every query against a local tree-sitter harness + fixtures (§9) |
+
+---
+
+## 9. Investigation log
+
+### 2026-11-18 — local parse harness + fixtures
+
+Built a throwaway harness to inspect what `tree-sitter-java` **actually** produces for
+openHAB files, because Phase A notes (§7) were partly derived from `syntax_tree` output
+and were misleading in places. It has since been **promoted into the repo** at
+`tests/harness/` (see the entry below), so this section describes its origin.
+
+- `tests/harness/` (was `zed/openhab-zed/.scratch/tsh/`) — Rust binary using
+  `tree-sitter` 0.23; `build.rs` compiles the vendored `grammars/java/src/parser.c`.
+  Modes: default/`--tree` (parse tree), `--captures <q.scm> <files…>` (captures mapped
+  onto source lines), `--compile <q.scm>` (query validation only). A scratch
+  `CARGO_HOME` (`.scratch/cargo`) is needed here because `~/.cargo` is read-only.
+- `tests/fixtures/` (was `.scratch/fixtures/`) — `sample.{items,rules,things,sitemap,persist}`,
+  `r1..r5.rules` probes, plus `*-edge.*` fixtures added later.
+
+Observations worth folding into the queries / plan:
+
+1. **`import` needs a delimiter.** `import a.b.C` (no `;`) produces a proper
+   `import_declaration` **only if the parser can run to EOF** — i.e. the next
+   statement must be on a later line with a blank line in between. With a statement
+   right after it, the whole import turns into an `ERROR`. Real openHAB files are
+   usually safe, but the import cannot be highlighted reliably in all layouts.
+2. **`.items` channel values are not strings.** `channel="hue:…:color"` inside
+   `{ … }` parses as `ERROR` / `expression_statement` / `assignment_expression`, so
+   only *label* strings get `@string`. Same for `(Group)` (which does parse as
+   `parenthesized_expression` → `identifier`).
+3. **`.sitemap` widget types are `type_identifier`** (`Switch`, `Frame`, `Dimmer`, …)
+   at the start of a line — usable. But openHAB `Text` items collide with the
+   `Text` widget, and most of a widget line after the first `=` collapses into a
+   single `ERROR`, so per-parameter coloring is not feasible in Phase A.
+4. **`.things` / `.persist` are near-total `ERROR`.** Only isolated fragments are
+   structured; anything beyond string/number/comment highlighting needs Phase B.
+5. **`end` is never a token.** It always ends up inside an `ERROR` node, so
+   `decrease_indent_pattern = "^\\s*end\\b"` in `config.toml` is inert at best and
+   would also apply to `.rules` code containing `end`-prefixed identifiers.
+6. **Unanchored queries double-match.** e.g. `(method_declaration name: …)` fires
+   again for nested `method_invocation`/`identifier` nodes because there is no `;`
+   guard; several predicates re-search whole subtrees.
+7. **Keyword rules hit names.** Confirmed on `sample.rules` and `sample.items`: the
+   `^(rule|when|then|end|…)$` rules fire on *any* identifier with those contents, so
+   an item named e.g. `Channel` reads as a keyword. The same words are also
+   `type_identifier`s more often than the old file assumed (`end`, `then`, `val`).
+8. **`import` needs supporting rules.** In `sample.rules`, `import org.eclipse…ScriptServiceUtil`
+   yields package segments as `@variable` and the final type as `@variable` — the
+   last segment should be `@type`, the prefix `@variable`/namespace.
+9. **`outline.scm` catches nothing.** `((identifier) @name (#match? …)) @item`
+   captured **zero** items on `sample.sitemap` and `sample.things`, and on
+   `sample.rules` matched header words rather than names. Rule names live in a
+   sibling `string_literal`, and `Frame label="…"` parses as a
+   `local_variable_declaration` whose `value:` is the label string.
+10. **`ON`/`OFF` need an explicit builtin list.** They are `identifier`s (not
+    `constant` nodes) and some lack a preceding `;`, so they resolve as `@variable`
+    and are not matched by the `@constant`/`@constant.builtin` rules.
+
+### 2026-11-18 — parallel query work: what worked, what didn't
+
+The remaining query work (`highlights.scm`, `outline.scm` + `indents.scm`, and the
+`tests/` scaffolding) was split across three sub-agents with disjoint write scopes.
+**Only the `tests/` agent produced useful, reusable output**; the two GLM agents were
+stopped before making any edits, so **`languages/openhab/*.scm` are still unchanged
+from the original commit**. What survives from the delegation:
+
+- `tests/harness/` — kept, and fixed by hand: the generated `build.rs` did not
+  compile (broken multi-line string) and `main.rs` had a `sort_by_key` lifetime
+  error. Both are repaired; all five queries currently `--compile` clean.
+- `tests/fixtures/` — kept: the `sample.*`/`r*` probes plus new `items-edge.items`
+  (every base item type, `Group:Number:AVG`/`:SUM`, metadata blocks), `rules-edge.rules`
+  (cron / `System started` / `changed to ON` / channel triggers, `script`, top-level
+  `val`/`var`, lambdas, imports with and without `;`), `sitemap-edge.sitemap`,
+  `things-edge.things`, `persist-edge.persist`.
+- **Still missing:** `tests/trees/` snapshots (directory exists but is empty),
+  `tests/validate-queries.sh`, `tests/update-snapshots.sh`, `tests/reports/`,
+  `tests/README.md`, and the `.gitignore` entries for `.scratch/` and
+  `tests/harness/target`.
+
+Lesson for delegation: an agent exploring an unfamiliar parse tree burns most of its
+budget on discovery before it writes anything. Give such an agent the *tree dumps*
+as input (or a pre-written failing test), not just the task description.
+
+Next (single-agent work): finish `tests/` scaffolding, then do the query edits
+(`highlights.scm` anchoring + keywords-in-name-position + `import` + `ON`/`OFF`;
+`outline.scm` headers-by-string; `indents.scm` review), validating each with
+`tests/harness` before calling it done.
+
+### 2026-11-18 — queries rewritten and validated (Phase A polish done)
+
+All five query files were rewritten against real parse trees and validated with
+`tests/harness`. `tests/validate-queries.sh` passes, `check-snapshots.sh` is green,
+and the extension still builds to `wasm32-wasip2`.
+
+**Tooling.** The harness gained `--compile` (query validation with no fixtures) and
+the scripts `validate-queries.sh`, `update-snapshots.sh`, `check-snapshots.sh`,
+`report-captures.sh`. `tests/trees/` pins **parse trees only**, so query edits never
+churn snapshots.
+
+**Ground rules discovered while writing queries** (these cost most of the time and
+are worth reading before touching a `.scm`):
+
+1. **This tree-sitter version rejects an anchor `(.)` between two sibling
+   patterns** (`Structure` error). `(a) (.) (b)` does not compile; `(a) (b)` does.
+   Anchors at the *start* of a pattern compile fine. Plan queries accordingly.
+2. **A predicate attached to an alternation `[(identifier) (type_identifier)] @x`
+   is silently ignored** — the capture then matches every node of those types.
+   Always attach `#match?`/`#eq?` to a single node-type pattern.
+3. **Predicates must follow all child patterns** inside the group.
+4. **Top-level bare identifiers are not valid Java.** `program` accepts only
+   `method_declaration` and `statement`, so `rule` is only an `expression_statement`
+   when the header is absorbed into a statement context. In `sample.rules` that
+   happens for the `Item … changed` triggers but not for `Time cron` or
+   `Channel … triggered`.
+5. **A semicolon-less `import` swallows the rest of the file** into one ERROR node
+   whenever another statement follows (blank lines and comments do not help).
+   `r1.rules` and `r5.rules` are therefore deliberate worst-case fixtures.
+6. **Zed's supported capture list excludes `@keyword.storage`** and there is no
+   `@namespace`. `@keyword.storage` is kept (as the original file did) with
+   `@keyword` as the fallback capture; `@function.builtin` is likewise not in the
+   table but is used as a fallback after `@function.method`.
+
+**What changed per file.**
+
+- `highlights.scm` — upstream `tree-sitter-java` queries already cover variables,
+  methods, literals, comments and Java keywords, so the duplicate rules were
+  dropped (two rules per node made theme resolution arbitrary). Added: `@function`
+  fallback, `import` final-segment `@type`, `labeled_statement` → `Group:Number:AVG`
+  segment types, rule-trigger vocabulary, `,`/`;` delimiters. Confirmed that the
+  DSL keyword rules no longer fire on item/thing *names*.
+- `outline.scm` — sitemap (`sitemap`/`Frame` by label) and `.items` groups now work;
+  `enum`/`constructor`/`record` added (`tags.scm` covers classes/methods/interfaces
+  only, and runs alongside this file). Rule headers remain unreachable in most files
+  (ground rule 4) and are documented as such.
+- `indents.scm` — `switch_block` added, `@start.if` marker added. **Bug fixed:** the
+  new `decrease_indent_patterns` initially landed *under* `[overrides.string]`, which
+  is invalid; it is now a top-level key.
+- `textobjects.scm` — `(block) @function.around` added (blocks are the only reliable
+  body node in openHAB files).
+- `config.toml` — `decrease_indent_patterns` for `else` alignment; no `end` pattern
+  (inert at best, risky at worst).
+
+**Bugs found and fixed in the promoted harness:** `build.rs` did not compile
+(broken multi-line string) and `main.rs` had a `sort_by_key` lifetime error.
+The scaffold script also hid query failures (`--compile` output went to `/dev/null`)
+and put backslashes in fixture files (r1–r5); `report-captures.sh` was added because
+nothing regenerated `tests/reports/`.
+
+**Still open.** `ON`/`OFF` stay `@variable` (finding 10); `Number:Temperature`
+`:Temperature` stays `@variable`; rule headers are not outlined in most files. All
+three are Phase B items, not Phase A regressions.

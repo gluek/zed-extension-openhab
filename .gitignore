@@ -1,3 +1,10 @@
 /target
 /grammars
 extension.wasm
+
+# Scratch workspace (harness CARGO_HOME, exploratory fixtures)
+/.scratch
+# Query-validation harness build output
+/tests/harness/target
+# Generated capture reports
+/tests/reports

@@ -1,0 +1,11 @@
+// Items
+Group gLights "All Lights" <light>
+Group:Number:AVG gTemperature "Avg Temperature" (gWeather) ["Measurement"]
+Switch Kitchen_Light "Kitchen Light" <light> (gLights) ["Lighting"] { channel="hue:0210:1:bulb1:color", autoupdate="false" }
+Dimmer Livingroom_Dimmer "Dimmer [%d %%]" (gLights) { channel="deconz:switch:hue:sw1:brightness" }
+Color Bedroom_Color "Bedroom [%s]" { channel="hue:0210:2:bulb2:color" }
+Number:Temperature Weather_Temperature "Outside [%.1f %unit%]" <temperature> (gWeather) ["Measurement", "Temperature"] { channel="openweathermap:weather-and-forecast:api:local:current#temperature" }
+DateTime Last_Update "Last Update [%1$tY-%1$tm-%1$td %1$tH:%1$tM]" <time>
+String Persistence_Service "Persistence Service" { stateDescription="" [ options="rrd4j=rr4j,mapdb=mapdb" ] }
+Rollershutter Roller_Shutter "Shutter [%.0f %%]" <rollershutter>
+Contact Front_Door "Front Door [MAP(en.map):%s]" <frontdoor> (gWindows) { channel="zwave:device:node1:sensor_binary" }

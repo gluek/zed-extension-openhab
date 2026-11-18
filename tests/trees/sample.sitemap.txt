@@ -1,0 +1,149 @@
+program
+  local_variable_declaration
+    type: type_identifier 'sitemap'
+    ERROR [ERROR] 'demo'
+    declarator: variable_declarator
+      name: identifier 'label'
+      = '='
+      value: string_literal
+        " '"'
+        string_fragment 'Main Menu'
+        " '"'
+    ; [MISSING] ''
+  block
+    { '{'
+    local_variable_declaration
+      type: type_identifier 'Frame'
+      declarator: variable_declarator
+        name: identifier 'label'
+        = '='
+        value: string_literal
+          " '"'
+          string_fragment 'Lights'
+          " '"'
+      ; [MISSING] ''
+    block
+      { '{'
+      local_variable_declaration
+        type: type_identifier 'Switch'
+        declarator: variable_declarator
+          name: identifier 'item'
+          = '='
+          ERROR [ERROR] 'Kitchen_Light'
+          value: assignment_expression
+            left: identifier 'label'
+            operator: = '='
+            right: string_literal
+              " '"'
+              string_fragment 'Kitchen Light [%s]'
+              " '"'
+        ; [MISSING] ''
+      expression_statement
+        assignment_expression
+          left: identifier 'icon'
+          operator: = '='
+          right: string_literal
+            " '"'
+            string_fragment 'light'
+            " '"'
+        ; [MISSING] ''
+      local_variable_declaration
+        type: type_identifier 'Dimmer'
+        declarator: variable_declarator
+          name: identifier 'item'
+          = '='
+          ERROR [ERROR] 'Livingroom_Dimmer'
+          value: assignment_expression
+            left: identifier 'label'
+            operator: = '='
+            ERROR [ERROR] '"Dimmer" icon="slider" visibility=[Kitchen_Light=='
+            right: assignment_expression
+              left: identifier 'item'
+              operator: = '='
+              ERROR [ERROR] 'Bedroom_Color label="Color"\n        Slider'
+              right: assignment_expression
+                left: identifier 'item'
+                operator: = '='
+                ERROR [ERROR] 'Livingroom_Dimmer label="Brightness [%.0f %%]" min'
+                right: assignment_expression
+                  left: identifier 'item'
+                  operator: = '='
+                  ERROR [ERROR] 'Thermostat_Setpoint minValue=16 maxValue=24 step=1'
+                  right: assignment_expression
+                    left: identifier 'item'
+                    operator: = '='
+                    ERROR [ERROR] 'Mode label="Mode"'
+                    right: assignment_expression
+                      left: identifier 'mappings'
+                      operator: = '='
+                      ERROR [ERROR] '[0='
+                      right: string_literal
+                        " '"'
+                        string_fragment 'Off'
+                        " '"'
+        , ','
+        ERROR [ERROR] '1="'
+        declarator: variable_declarator
+          name: identifier 'On'
+        ; [MISSING] ''
+      ERROR [ERROR] '", 2="Auto'
+      expression_statement
+        string_literal
+          " '"'
+          string_fragment ']\n        Text item=Weather_Temperature label='
+          " '"'
+        ; [MISSING] ''
+      local_variable_declaration
+        type: array_type
+          element: type_identifier 'Temperature'
+          dimensions: dimensions
+            [ '['
+            ERROR [ERROR] '%.1f °C'
+            ] ']'
+        ERROR [ERROR] '"'
+        declarator: variable_declarator
+          name: identifier 'icon'
+          = '='
+          value: string_literal
+            " '"'
+            string_fragment 'temperature'
+            " '"'
+        ; [MISSING] ''
+      } '}'
+    local_variable_declaration
+      type: type_identifier 'Frame'
+      declarator: variable_declarator
+        name: identifier 'label'
+        = '='
+        value: string_literal
+          " '"'
+          string_fragment 'Navigation'
+          " '"'
+      ; [MISSING] ''
+    block
+      { '{'
+      local_variable_declaration
+        type: type_identifier 'Group'
+        declarator: variable_declarator
+          name: identifier 'item'
+          = '='
+          ERROR [ERROR] 'gLights\n        Chart'
+          value: assignment_expression
+            left: identifier 'item'
+            operator: = '='
+            ERROR [ERROR] 'Weather_Temperature'
+            right: assignment_expression
+              left: identifier 'period'
+              operator: = '='
+              ERROR [ERROR] 'h refresh=6000\n        Image url="http://example.'
+              right: assignment_expression
+                left: identifier 'item'
+                operator: = '='
+                ERROR [ERROR] 'Location_Item'
+                right: assignment_expression
+                  left: identifier 'height'
+                  operator: = '='
+                  right: decimal_integer_literal '5'
+        ; [MISSING] ''
+      } '}'
+    } '}'

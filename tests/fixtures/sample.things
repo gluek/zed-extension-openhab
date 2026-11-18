@@ -1,0 +1,22 @@
+Bridge hue:bridge:office "Office Hue" [ ipAddress="192.168.1.10", username="abc" ] {
+    Thing 0210 bulb1 "Hue Bulb 1" [ lightId="1" ]
+    Thing 0210 bulb2 "Hue Bulb 2" [ lightId="2" ]
+}
+
+Thing deconz:switch:hue:sw1 "Hue Switch" (hue:bridge:office) [ id="1" ]
+
+Thing mqtt:topic:MyBroker:MyTopic "My MQTT Topic" (mqtt:broker:MyBroker) {
+    Channels:
+        Type number : testCh "Test Channel" [ stateTopic="test/topic" ]
+        Type switch : testSwitch "Test Switch" [ commandTopic="test/switch" ]
+}
+
+Thing zwave:device:node1 "Z-Wave Node" [ node_id=1 ] {
+    Channels:
+        Type sensor_binary : sensor_binary [ config=true ]
+}
+
+Thing http:url:influxdb "InfluxDB" [
+    baseURL="http://localhost:8086",
+    refresh=60
+]

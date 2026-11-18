@@ -1,0 +1,13 @@
+import org.eclipse.smarthome.model.script.ScriptServiceUtil
+
+rule "Turn on light at sunset"
+when
+    Channel "astro:sun:local:set#event" triggered START
+then
+    logInfo("light", "Sunset triggered")
+    if (Astro_Sun_Phase.state == "SET") {
+        Kitchen_Light.sendCommand(ON)
+    } else {
+        gLights.members.forEach[ l | l.sendCommand(OFF) ]
+    }
+end

@@ -1,0 +1,151 @@
+program
+  line_comment '// Edge-case items: every base item type, units, g'
+  local_variable_declaration
+    type: type_identifier 'Group'
+    declarator: variable_declarator
+      name: identifier 'gAll'
+    ; [MISSING] ''
+  ERROR [ERROR] '"All" <all>\nGroup gLights "Lights" (gAll)\nGroup '
+  labeled_statement
+    identifier 'Number'
+    : ':'
+    local_variable_declaration
+      type: type_identifier 'AVG'
+      declarator: variable_declarator
+        name: identifier 'gTemperature'
+      ; [MISSING] ''
+  expression_statement
+    string_literal
+      " '"'
+      string_fragment 'Avg Temperature'
+      " '"'
+    ; [MISSING] ''
+  expression_statement
+    array_access
+      array: parenthesized_expression
+        ( '('
+        identifier 'gWeather'
+        ) ')'
+      [ '['
+      index: string_literal
+        " '"'
+        string_fragment 'Measurement'
+        " '"'
+      ] ']'
+    ; [MISSING] ''
+  labeled_statement
+    identifier 'Group'
+    : ':'
+    labeled_statement
+      identifier 'Number'
+      : ':'
+      local_variable_declaration
+        type: type_identifier 'SUM'
+        declarator: variable_declarator
+          name: identifier 'gEnergy'
+        ; [MISSING] ''
+  expression_statement
+    string_literal
+      " '"'
+      string_fragment 'Total Energy'
+      " '"'
+    ; [MISSING] ''
+  expression_statement
+    array_access
+      array: parenthesized_expression
+        ( '('
+        identifier 'gWeather'
+        ) ')'
+      [ '['
+      ERROR [ERROR] '"Measurement",'
+      index: string_literal
+        " '"'
+        string_fragment 'Energy'
+        " '"'
+      ] ']'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'Color'
+    declarator: variable_declarator
+      name: identifier 'Kitchen_Color'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Kitchen Color" <light>\nContact Front_Door "Front'
+  expression_statement
+    binary_expression
+      left: binary_expression
+        left: string_literal
+          " '"'
+          string_fragment 'Outdoor [%.1f °C]'
+          " '"'
+        operator: < '<'
+        right: identifier 'temperature'
+      operator: > '>'
+      right: array_access
+        array: parenthesized_expression
+          ( '('
+          identifier 'gWeather'
+          ) ')'
+        [ '['
+        index: string_literal
+          " '"'
+          string_fragment 'Outdoor'
+          " '"'
+        ] ']'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'Player'
+    declarator: variable_declarator
+      name: identifier 'Media_Player'
+    ; [MISSING] ''
+  expression_statement
+    binary_expression
+      left: binary_expression
+        left: binary_expression
+          left: binary_expression
+            left: binary_expression
+              left: binary_expression
+                left: binary_expression
+                  left: string_literal
+                    " '"'
+                    string_fragment 'Media Player'
+                    " '"'
+                  operator: < '<'
+                  right: identifier 'player'
+                operator: > '>'
+                ERROR [ERROR] 'Rollershutter Shutter_Main'
+                right: string_literal
+                  " '"'
+                  string_fragment 'Shutter [%.0f %%]'
+                  " '"'
+              operator: < '<'
+              right: identifier 'rollershutter'
+            operator: > '>'
+            ERROR [ERROR] 'String Service'
+            right: string_literal
+              " '"'
+              string_fragment 'Persistence Service'
+              " '"'
+          operator: < '<'
+          right: identifier 'service'
+        operator: > '>'
+        ERROR [ERROR] 'Switch Main_Switch'
+        right: string_literal
+          " '"'
+          string_fragment 'Main Switch'
+          " '"'
+      ERROR [ERROR] '<switch'
+      operator: > '>'
+      ERROR [ERROR] '(gLights, gAll)\n\n// Item with a metadata block ('
+      right: identifier 'AutoRefresh'
+    ; [MISSING] ''
+  block
+    { '{'
+    ERROR [ERROR] 'strategy="timer",\n        period=15,\n        uni'
+    } '}'
+  expression_statement
+    identifier 'System'
+    ; [MISSING] ''
+  block
+    { '{'
+    ERROR [ERROR] 'core:stateDescription {\n            pattern="[%d '
+    } '}'

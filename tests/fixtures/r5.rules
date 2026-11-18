@@ -1,0 +1,4 @@
+import org.eclipse.smarthome.model.script.ScriptServiceUtil
+;
+
+rule "x" when Item A changed then end

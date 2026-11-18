@@ -1,0 +1,20 @@
+program
+  import_declaration
+    import 'import'
+    scoped_identifier
+      scope: scoped_identifier
+        scope: scoped_identifier
+          scope: scoped_identifier
+            scope: scoped_identifier
+              scope: identifier 'org'
+              . '.'
+              name: identifier 'eclipse'
+            . '.'
+            name: identifier 'smarthome'
+          . '.'
+          name: identifier 'model'
+        . '.'
+        name: identifier 'script'
+      . '.'
+      name: identifier 'ScriptServiceUtil'
+    ; [MISSING] ''

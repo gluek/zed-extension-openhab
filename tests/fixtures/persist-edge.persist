@@ -1,0 +1,15 @@
+// Edge-case persist: strategy aliases, wildcards, restoreOnStartup.
+
+Strategies {
+    everyHour  : "0 0 * * * ?"
+    everyDay   : "0 0 0 * * ?"
+    everyMonth : "0 0 0 1 * ?"
+    default = "everyDay"
+}
+
+Items {
+    Kitchen_Light, Main_Switch : strategy = everyChange, restoreOnStartup
+    gLights* : strategy = everyHour
+    Outdoor* : strategy = everyDay
+    * : strategy = default
+}

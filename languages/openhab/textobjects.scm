@@ -1,15 +1,14 @@
 ; Text objects ("select around / inside") for openHAB.
+;
+; Java declarations are already covered by the upstream grammar (method and
+; class text objects), so this file only adds openHAB-shaped regions and the
+; comment objects that the upstream grammar does not provide.
+;
+; `block` is the only reliably-available "body" node in openHAB files: the Java
+; grammar reuses it for `rule … then … end` bodies as well as for `{}` bodies.
 
-(method_declaration) @function.around
-(method_declaration
-  body: (block) @function.inside)
+(block) @function.around
 
-(class_declaration) @class.around
-(class_declaration
-  body: (class_body) @class.inside)
-
-; Adjacent comments, including the Javadoc-style block comments openHAB uses
-; above rules and items.
 ([
   (line_comment)
   (block_comment)

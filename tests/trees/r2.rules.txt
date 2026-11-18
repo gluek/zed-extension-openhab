@@ -1,0 +1,8 @@
+program
+  ERROR [ERROR] 'rule "Turn on light at sunset"\nwhen\n    Channel '
+  local_variable_declaration
+    type: type_identifier 'START'
+    declarator: variable_declarator
+      name: identifier 'then'
+    ; [MISSING] ''
+  ERROR [ERROR] 'logInfo("light", "Sunset triggered")\nend'

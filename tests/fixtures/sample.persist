@@ -1,0 +1,12 @@
+Strategies {
+    everyHour : "0 0 * * * ?"
+    everyDay  : "0 0 0 * * ?"
+    default = "everyDay"
+}
+
+Items {
+    Kitchen_Light, Livingroom_Dimmer : strategy = everyChange, restoreOnStartup
+    gTemperature* : strategy = everyHour
+    Weather_Temperature : strategy = everyUpdate, everyDay
+    * : strategy = default
+}

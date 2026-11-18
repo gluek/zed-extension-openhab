@@ -1,0 +1,34 @@
+// Edge-case items: every base item type, units, groups, tags, metadata.
+
+Group gAll "All" <all>
+Group gLights "Lights" (gAll)
+Group gWeather "Weather" (gAll)
+Group:Number:AVG gTemperature "Avg Temperature" (gWeather) ["Measurement"]
+Group:Number:SUM gEnergy "Total Energy" (gWeather) ["Measurement", "Energy"]
+
+Color Kitchen_Color "Kitchen Color" <light>
+Contact Front_Door "Front Door [MAP(en.map):%s]" <frontdoor>
+DateTime Last_Refresh "Last Refresh [%1$tY-%1$tm-%1$td %1$tH:%1$tM]" <time>
+Dimmer Living_Dimmer "Dimmer [%d %%]" (gLights)
+Image Logo "Company Logo" <image>
+Location Garage "Garage" <location> [ latitude=52.52, longitude=13.40 ]
+Number Counter "Counter" <counter>
+Number:Temperature Outdoor "Outdoor [%.1f °C]" <temperature> (gWeather) ["Outdoor"]
+Player Media_Player "Media Player" <player>
+Rollershutter Shutter_Main "Shutter [%.0f %%]" <rollershutter>
+String Service "Persistence Service" <service>
+Switch Main_Switch "Main Switch" <switch> (gLights, gAll)
+
+// Item with a metadata block (multiple keys, nested block).
+Number:Power Kitchen_Power "Power [%.0f W]" (gLights) {
+    AutoRefresh {
+        strategy="timer",
+        period=15,
+        unit="s"
+    }
+    System {
+        core:stateDescription {
+            pattern="[%d W]"
+        }
+    }
+}

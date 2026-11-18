@@ -1,0 +1,17 @@
+// Edge-case sitemap: nested frames, widget variety, mappings, non-ASCII label.
+
+sitemap main label="Main"
+{
+    Frame label="Overview" {
+        Text item=Outdoor label="Outdoor [%.1f °C]"
+        Switch item=Main_Switch label="Main Switch [%s]" icon="switch"
+        Selection item=Mode label="Mode" mappings=[0="Off", 1="On", 2="Auto"]
+        Chart item=Outdoor label="Last 4 Days" period=4D
+    }
+    Frame label="Media" {
+        Frame label="Videos" {
+            Webview url="http://example.com/cam" height=10
+        }
+        Mapview item=Garage label="Garage Map" height=5
+    }
+}

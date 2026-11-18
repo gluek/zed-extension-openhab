@@ -1,0 +1,19 @@
+sitemap demo label="Main Menu"
+{
+    Frame label="Lights" {
+        Switch item=Kitchen_Light label="Kitchen Light [%s]" icon="light"
+        Dimmer item=Livingroom_Dimmer label="Dimmer" icon="slider" visibility=[Kitchen_Light==ON]
+        Colorpicker item=Bedroom_Color label="Color"
+        Slider item=Livingroom_Dimmer label="Brightness [%.0f %%]" minValue=0 maxValue=100 step=5
+        Setpoint item=Thermostat_Setpoint minValue=16 maxValue=24 step=1
+        Selection item=Mode label="Mode" mappings=[0="Off", 1="On", 2="Auto"]
+        Text item=Weather_Temperature label="Temperature [%.1f °C]" icon="temperature"
+    }
+    Frame label="Navigation" {
+        Group item=gLights
+        Chart item=Weather_Temperature period=h refresh=6000
+        Image url="http://example.com/pic.png" refresh=10000
+        Webview url="http://example.com" height=10
+        Mapview item=Location_Item height=5
+    }
+}

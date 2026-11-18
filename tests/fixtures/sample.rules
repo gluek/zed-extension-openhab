@@ -1,0 +1,46 @@
+import org.eclipse.smarthome.model.script.ScriptServiceUtil;
+
+// Rules
+
+rule "Turn on light at sunset"
+when
+    Channel "astro:sun:local:set#event" triggered START
+then
+    logInfo("light", "Sunset triggered")
+    if (Astro_Sun_Phase.state == "SET") {
+        Kitchen_Light.sendCommand(ON)
+    } else {
+        gLights.members.forEach[ l | l.sendCommand(OFF) ]
+    }
+end
+
+rule "Averaged temperature"
+when
+    Item Weather_Temperature changed
+then
+    val Number avg = Weather_Temperature.state as QuantityType<Number>
+    var String msg = String.format("Avg is %.1f °C", avg)
+    logInfo("weather", msg)
+end
+
+rule "Timer example"
+when
+    Time cron "0 0/5 * * * ?"
+then
+    val Timer t = createTimer(now.plusSeconds(30), [ |
+        logInfo("timer", "fired")
+        was_kitchen_light_on = true
+    ])
+    if (t !== null) {
+        t.cancel()
+    }
+end
+
+script "Startup script"
+when
+    System started
+then
+    logInfo("startup", "openHAB started")
+end
+
+val java.util.List<String> messages = newArrayList()

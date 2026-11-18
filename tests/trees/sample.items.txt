@@ -1,0 +1,162 @@
+program
+  line_comment '// Items'
+  local_variable_declaration
+    type: type_identifier 'Group'
+    declarator: variable_declarator
+      name: identifier 'gLights'
+    ; [MISSING] ''
+  ERROR [ERROR] '"All Lights" <light>\nGroup:'
+  labeled_statement
+    identifier 'Number'
+    : ':'
+    local_variable_declaration
+      type: type_identifier 'AVG'
+      declarator: variable_declarator
+        name: identifier 'gTemperature'
+      ; [MISSING] ''
+  expression_statement
+    string_literal
+      " '"'
+      string_fragment 'Avg Temperature'
+      " '"'
+    ; [MISSING] ''
+  expression_statement
+    array_access
+      array: parenthesized_expression
+        ( '('
+        identifier 'gWeather'
+        ) ')'
+      [ '['
+      index: string_literal
+        " '"'
+        string_fragment 'Measurement'
+        " '"'
+      ] ']'
+    ; [MISSING] ''
+  local_variable_declaration
+    type: type_identifier 'Switch'
+    declarator: variable_declarator
+      name: identifier 'Kitchen_Light'
+    ; [MISSING] ''
+  expression_statement
+    binary_expression
+      left: binary_expression
+        left: string_literal
+          " '"'
+          string_fragment 'Kitchen Light'
+          " '"'
+        operator: < '<'
+        right: identifier 'light'
+      operator: > '>'
+      right: array_access
+        array: parenthesized_expression
+          ( '('
+          identifier 'gLights'
+          ) ')'
+        [ '['
+        index: string_literal
+          " '"'
+          string_fragment 'Lighting'
+          " '"'
+        ] ']'
+    ; [MISSING] ''
+  block
+    { '{'
+    ERROR [ERROR] 'channel="hue:0210:1:bulb1:color", autoupdate="fals'
+    } '}'
+  local_variable_declaration
+    type: type_identifier 'Dimmer'
+    declarator: variable_declarator
+      name: identifier 'Livingroom_Dimmer'
+    ; [MISSING] ''
+  expression_statement
+    string_literal
+      " '"'
+      string_fragment 'Dimmer [%d %%]'
+      " '"'
+    ; [MISSING] ''
+  ERROR [ERROR] '(gLights)'
+  block
+    { '{'
+    expression_statement
+      assignment_expression
+        left: identifier 'channel'
+        operator: = '='
+        right: string_literal
+          " '"'
+          string_fragment 'deconz:switch:hue:sw1:brightness'
+          " '"'
+      ; [MISSING] ''
+    } '}'
+  local_variable_declaration
+    type: type_identifier 'Color'
+    declarator: variable_declarator
+      name: identifier 'Bedroom_Color'
+    ; [MISSING] ''
+  expression_statement
+    string_literal
+      " '"'
+      string_fragment 'Bedroom [%s]'
+      " '"'
+    ; [MISSING] ''
+  block
+    { '{'
+    expression_statement
+      assignment_expression
+        left: identifier 'channel'
+        operator: = '='
+        right: string_literal
+          " '"'
+          string_fragment 'hue:0210:2:bulb2:color'
+          " '"'
+      ; [MISSING] ''
+    } '}'
+  labeled_statement
+    identifier 'Number'
+    : ':'
+    local_variable_declaration
+      type: type_identifier 'Temperature'
+      declarator: variable_declarator
+        name: identifier 'Weather_Temperature'
+      ; [MISSING] ''
+  expression_statement
+    binary_expression
+      left: binary_expression
+        left: string_literal
+          " '"'
+          string_fragment 'Outside [%.1f %unit%]'
+          " '"'
+        operator: < '<'
+        right: identifier 'temperature'
+      operator: > '>'
+      right: array_access
+        array: parenthesized_expression
+          ( '('
+          identifier 'gWeather'
+          ) ')'
+        [ '['
+        ERROR [ERROR] '"Measurement",'
+        index: string_literal
+          " '"'
+          string_fragment 'Temperature'
+          " '"'
+        ] ']'
+    ; [MISSING] ''
+  block
+    { '{'
+    expression_statement
+      assignment_expression
+        left: identifier 'channel'
+        operator: = '='
+        right: string_literal
+          " '"'
+          string_fragment 'openweathermap:weather-and-forecast:api:local:curr'
+          " '"'
+      ; [MISSING] ''
+    } '}'
+  local_variable_declaration
+    type: type_identifier 'DateTime'
+    declarator: variable_declarator
+      name: identifier 'Last_Update'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Last Update [%1$tY-%1$tm-%1$td %1$tH:%1$tM]" <tim'

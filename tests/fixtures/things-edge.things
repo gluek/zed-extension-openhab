@@ -1,0 +1,18 @@
+// Edge-case things: bridge with nested things, channels block, multi-line config.
+
+Bridge hue:bridge:office "Office Hue" [
+    ipAddress="192.168.1.10",
+    username="abc123"
+] {
+    Thing 0210 bulb1 "Bulb 1" [ lightId="1" ] {
+        Channels:
+            Type color : color [ ]
+    }
+    Thing 0210 bulb2 "Bulb 2" [ lightId="2" ]
+}
+
+Thing mqtt:topic:status "Status Topic" (mqtt:broker:home) [ q=1 ] {
+    Channels:
+        Type number : temp "Temperature" [ stateTopic="house/temp" ]
+        Type switch : power "Power" [ commandTopic="house/power" ]
+}

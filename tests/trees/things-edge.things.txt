@@ -1,0 +1,134 @@
+program
+  line_comment '// Edge-case things: bridge with nested things, ch'
+  local_variable_declaration
+    type: type_identifier 'Bridge'
+    ERROR [ERROR] 'hue:bridge:'
+    declarator: variable_declarator
+      name: identifier 'office'
+    ; [MISSING] ''
+  expression_statement
+    array_access
+      array: string_literal
+        " '"'
+        string_fragment 'Office Hue'
+        " '"'
+      [ '['
+      ERROR [ERROR] 'ipAddress="192.168.1.10",'
+      index: assignment_expression
+        left: identifier 'username'
+        operator: = '='
+        right: string_literal
+          " '"'
+          string_fragment 'abc123'
+          " '"'
+      ] ']'
+    ; [MISSING] ''
+  block
+    { '{'
+    local_variable_declaration
+      type: type_identifier 'Thing'
+      ERROR [ERROR] '0210'
+      declarator: variable_declarator
+        name: identifier 'bulb1'
+      ; [MISSING] ''
+    expression_statement
+      array_access
+        array: string_literal
+          " '"'
+          string_fragment 'Bulb 1'
+          " '"'
+        [ '['
+        index: assignment_expression
+          left: identifier 'lightId'
+          operator: = '='
+          right: string_literal
+            " '"'
+            string_fragment '1'
+            " '"'
+        ] ']'
+      ; [MISSING] ''
+    block
+      { '{'
+      labeled_statement
+        identifier 'Channels'
+        : ':'
+        local_variable_declaration
+          type: type_identifier 'Type'
+          ERROR [ERROR] 'color :'
+          declarator: variable_declarator
+            name: identifier 'color'
+            dimensions: dimensions
+              [ '['
+              ] ']'
+          ; [MISSING] ''
+      } '}'
+    local_variable_declaration
+      type: type_identifier 'Thing'
+      ERROR [ERROR] '0210'
+      declarator: variable_declarator
+        name: identifier 'bulb2'
+      ; [MISSING] ''
+    expression_statement
+      array_access
+        array: string_literal
+          " '"'
+          string_fragment 'Bulb 2'
+          " '"'
+        [ '['
+        index: assignment_expression
+          left: identifier 'lightId'
+          operator: = '='
+          right: string_literal
+            " '"'
+            string_fragment '2'
+            " '"'
+        ] ']'
+      ; [MISSING] ''
+    } '}'
+  local_variable_declaration
+    type: type_identifier 'Thing'
+    ERROR [ERROR] 'mqtt:topic:'
+    declarator: variable_declarator
+      name: identifier 'status'
+    ; [MISSING] ''
+  ERROR [ERROR] '"Status Topic" ('
+  labeled_statement
+    identifier 'mqtt'
+    : ':'
+    labeled_statement
+      identifier 'broker'
+      : ':'
+      expression_statement
+        array_access
+          array: identifier 'home'
+          ERROR [ERROR] ')'
+          [ '['
+          index: assignment_expression
+            left: identifier 'q'
+            operator: = '='
+            right: decimal_integer_literal '1'
+          ] ']'
+        ; [MISSING] ''
+  block
+    { '{'
+    labeled_statement
+      identifier 'Channels'
+      : ':'
+      ERROR [ERROR] 'Type number : temp "Temperature" [ stateTopic="hou'
+      expression_statement
+        array_access
+          array: string_literal
+            " '"'
+            string_fragment 'Power'
+            " '"'
+          [ '['
+          index: assignment_expression
+            left: identifier 'commandTopic'
+            operator: = '='
+            right: string_literal
+              " '"'
+              string_fragment 'house/power'
+              " '"'
+          ] ']'
+        ; [MISSING] ''
+    } '}'

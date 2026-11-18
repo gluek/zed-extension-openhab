@@ -1,0 +1,149 @@
+program
+  line_comment '// Edge-case sitemap: nested frames, widget variet'
+  local_variable_declaration
+    type: type_identifier 'sitemap'
+    ERROR [ERROR] 'main'
+    declarator: variable_declarator
+      name: identifier 'label'
+      = '='
+      value: string_literal
+        " '"'
+        string_fragment 'Main'
+        " '"'
+    ; [MISSING] ''
+  block
+    { '{'
+    local_variable_declaration
+      type: type_identifier 'Frame'
+      declarator: variable_declarator
+        name: identifier 'label'
+        = '='
+        value: string_literal
+          " '"'
+          string_fragment 'Overview'
+          " '"'
+      ; [MISSING] ''
+    block
+      { '{'
+      local_variable_declaration
+        type: type_identifier 'Text'
+        declarator: variable_declarator
+          name: identifier 'item'
+          = '='
+          ERROR [ERROR] 'Outdoor'
+          value: assignment_expression
+            left: identifier 'label'
+            operator: = '='
+            right: string_literal
+              " '"'
+              string_fragment 'Outdoor [%.1f °C]'
+              " '"'
+        ; [MISSING] ''
+      local_variable_declaration
+        type: type_identifier 'Switch'
+        declarator: variable_declarator
+          name: identifier 'item'
+          = '='
+          ERROR [ERROR] 'Main_Switch'
+          value: assignment_expression
+            left: identifier 'label'
+            operator: = '='
+            right: string_literal
+              " '"'
+              string_fragment 'Main Switch [%s]'
+              " '"'
+        ; [MISSING] ''
+      expression_statement
+        assignment_expression
+          left: identifier 'icon'
+          operator: = '='
+          right: string_literal
+            " '"'
+            string_fragment 'switch'
+            " '"'
+        ; [MISSING] ''
+      ERROR [ERROR] 'Selection item=Mode label="Mode" mappings=[0="Off"'
+      local_variable_declaration
+        type: type_identifier 'Chart'
+        declarator: variable_declarator
+          name: identifier 'item'
+          = '='
+          ERROR [ERROR] 'Outdoor'
+          value: assignment_expression
+            left: identifier 'label'
+            operator: = '='
+            right: string_literal
+              " '"'
+              string_fragment 'Last 4 Days'
+              " '"'
+        ; [MISSING] ''
+      expression_statement
+        assignment_expression
+          left: identifier 'period'
+          operator: = '='
+          right: decimal_floating_point_literal '4D'
+        ; [MISSING] ''
+      } '}'
+    local_variable_declaration
+      type: type_identifier 'Frame'
+      declarator: variable_declarator
+        name: identifier 'label'
+        = '='
+        value: string_literal
+          " '"'
+          string_fragment 'Media'
+          " '"'
+      ; [MISSING] ''
+    block
+      { '{'
+      local_variable_declaration
+        type: type_identifier 'Frame'
+        declarator: variable_declarator
+          name: identifier 'label'
+          = '='
+          value: string_literal
+            " '"'
+            string_fragment 'Videos'
+            " '"'
+        ; [MISSING] ''
+      block
+        { '{'
+        local_variable_declaration
+          type: type_identifier 'Webview'
+          declarator: variable_declarator
+            name: identifier 'url'
+            = '='
+            value: string_literal
+              " '"'
+              string_fragment 'http://example.com/cam'
+              " '"'
+          ; [MISSING] ''
+        expression_statement
+          assignment_expression
+            left: identifier 'height'
+            operator: = '='
+            right: decimal_integer_literal '10'
+          ; [MISSING] ''
+        } '}'
+      local_variable_declaration
+        type: type_identifier 'Mapview'
+        declarator: variable_declarator
+          name: identifier 'item'
+          = '='
+          ERROR [ERROR] 'Garage'
+          value: assignment_expression
+            left: identifier 'label'
+            operator: = '='
+            right: string_literal
+              " '"'
+              string_fragment 'Garage Map'
+              " '"'
+        ; [MISSING] ''
+      expression_statement
+        assignment_expression
+          left: identifier 'height'
+          operator: = '='
+          right: decimal_integer_literal '5'
+        ; [MISSING] ''
+      } '}'
+    } '}'

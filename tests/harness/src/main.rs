@@ -1,0 +1,242 @@
+//! Local parse/query harness for the openHAB extension.
+//!
+//! Modes:
+//!   harness <file>...                  print the full parse tree of each file
+//!   harness <file>... --tree           same, explicitly
+//!   harness --captures <q.scm> <file>  print query captures aligned to source
+//!                                      lines, plus an errors/captures summary
+//!   harness <file>... <q.scm>          same as --captures (positional query)
+//!   harness --compile <q.scm>          only compile the query (no fixtures);
+//!                                      exits 1 on an invalid query
+//!
+//! Output is deterministic: tree order follows the parse tree, captures are
+//! sorted by (row, column, node kind, capture name), files are processed in
+//! argument order. Snapshots in tests/trees/ are produced in tree mode on a
+//! single file (no headers), so they never churn when queries change.
+
+use tree_sitter::{Node, Parser, Query, QueryCursor};
+
+extern "C" {
+    fn tree_sitter_java() -> *const tree_sitter::ffi::TSLanguage;
+}
+
+fn java_lang() -> tree_sitter::Language {
+    unsafe {
+        std::mem::transmute::<*const tree_sitter::ffi::TSLanguage, tree_sitter::Language>(
+            tree_sitter_java(),
+        )
+    }
+}
+
+fn fail(msg: &str) -> ! {
+    eprintln!("harness: {msg}");
+    std::process::exit(1);
+}
+
+fn read_file(path: &str) -> String {
+    std::fs::read_to_string(path).unwrap_or_else(|e| fail(&format!("cannot read {path}: {e}")))
+}
+
+fn parse(src: &str) -> tree_sitter::Tree {
+    let mut parser = Parser::new();
+    parser.set_language(&java_lang()).unwrap();
+    parser.parse(src, None).unwrap()
+}
+
+/// Compile a query file; exits 1 with a clear message on an invalid query.
+fn compile_query(path: &str) -> Query {
+    let scm = read_file(path);
+    match Query::new(&java_lang(), &scm) {
+        Ok(query) => query,
+        Err(err) => fail(&format!("{path}: invalid query: {err:?}")),
+    }
+}
+
+/// Full parse tree, one node per line, with field names and slice text.
+fn dump(node: Node, src: &str, depth: usize, field: Option<&str>) {
+    let pad = "  ".repeat(depth);
+    let text: String = src[node.byte_range()]
+        .replace('\n', "\\n")
+        .chars()
+        .take(50)
+        .collect();
+    let f = field.map(|f| format!("{f}: ")).unwrap_or_default();
+    let err = if node.is_error() { " [ERROR]" } else { "" };
+    if node.child_count() == 0 || node.is_error() || node.is_missing() {
+        println!(
+            "{pad}{f}{}{}{} '{}'",
+            node.kind(),
+            err,
+            if node.is_missing() { " [MISSING]" } else { "" },
+            text
+        );
+        return;
+    }
+    println!("{pad}{f}{}{}", node.kind(), err);
+    let mut cursor = node.walk();
+    for (i, child) in node.children(&mut cursor).enumerate() {
+        dump(child, src, depth + 1, node.field_name_for_child(i as u32));
+    }
+}
+
+/// Count ERROR nodes in the tree (missing nodes excluded).
+fn count_errors(node: Node) -> usize {
+    let mut n = if node.is_error() { 1 } else { 0 };
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        n += count_errors(child);
+    }
+    n
+}
+
+/// Map every query capture back onto the source line it starts on.
+/// Returns the number of captures.
+fn query_report(src: &str, tree: &tree_sitter::Tree, query: &Query) -> usize {
+    let mut cursor = QueryCursor::new();
+    let mut hits: Vec<(usize, usize, String, String, String)> = Vec::new();
+    for (m, index) in cursor.captures(query, tree.root_node(), src.as_bytes()) {
+        let node = m.captures[index].node;
+        let text: String = src[node.byte_range()]
+            .chars()
+            .take(40)
+            .collect::<String>()
+            .replace('\n', "\\n");
+        hits.push((
+            node.start_position().row,
+            node.start_position().column,
+            node.kind().to_string(),
+            query.capture_names()[m.captures[index].index as usize].to_string(),
+            text,
+        ));
+    }
+    // Sort on every field so the output is stable regardless of capture
+    // iteration order (same row/column is shared by nested captures).
+    hits.sort_by(|a, b| (a.0, a.1, &a.2, &a.3).cmp(&(b.0, b.1, &b.2, &b.3)));
+    let lines: Vec<&str> = src.lines().collect();
+    let mut current = usize::MAX;
+    for (row, col, kind, name, text) in &hits {
+        if *row != current {
+            println!(
+                "\n{:>3}| {}",
+                row + 1,
+                lines.get(*row).copied().unwrap_or("")
+            );
+            current = *row;
+        }
+        println!("      {col:>2} ({kind}) @{name} '{text}'");
+    }
+    hits.len()
+}
+
+fn usage() {
+    eprintln!(
+        "usage: harness <file>... [--tree]\n\
+         \x20     harness --captures <query.scm> <file>...\n\
+         \x20     harness <file>... <query.scm>\n\
+         \x20     harness --compile <query.scm>\n\n\
+         modes:\n\
+         \x20  (default)          print the full parse tree of each file\n\
+         \x20  --tree             same as default (explicit)\n\
+         \x20  --captures <q>     print query captures aligned to source lines,\n\
+         \x20                     plus a per-file 'errors/captures' line and a\n\
+         \x20                     final 'N captures over M files' summary\n\
+         \x20  --compile <q>      only compile the query (no fixtures needed);\n\
+         \x20                     exits 1 on an invalid query\n\
+         \n\
+         A trailing <query.scm> positional (with at least one other file,\n\
+         and no --tree) is treated as --captures. See tests/README.md."
+    );
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut tree = false;
+    let mut compile: Option<String> = None;
+    let mut captures: Option<String> = None;
+    let mut files: Vec<String> = Vec::new();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--tree" => tree = true,
+            "--help" | "-h" => {
+                usage();
+                return;
+            }
+            "--compile" | "--captures" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("harness: {} requires a .scm path", args[i - 1]);
+                    usage();
+                    std::process::exit(2);
+                }
+                let value = args[i].clone();
+                if args[i - 1] == "--compile" {
+                    compile = Some(value);
+                } else {
+                    captures = Some(value);
+                }
+            }
+            other if other.starts_with("--") => {
+                eprintln!("harness: unknown flag {other}");
+                usage();
+                std::process::exit(2);
+            }
+            other => files.push(other.to_string()),
+        }
+        i += 1;
+    }
+
+    // Compile-only mode: query validation with no fixtures.
+    if let Some(q) = compile {
+        compile_query(&q);
+        println!("ok: {q}");
+        return;
+    }
+
+    // Positional query: last argument is a .scm and at least one file remains
+    // (the original `tsh <file> <query.scm>` behaviour).
+    let query = match captures {
+        Some(q) => Some(q),
+        None => {
+            if !tree && files.len() >= 2 && files.last().unwrap().ends_with(".scm") {
+                Some(files.pop().unwrap())
+            } else {
+                None
+            }
+        }
+    };
+
+    if files.is_empty() {
+        eprintln!("harness: no input files");
+        usage();
+        std::process::exit(2);
+    }
+
+    let n = files.len();
+    if let Some(q) = query {
+        let query = compile_query(&q);
+        let mut total = 0usize;
+        for f in &files {
+            let src = read_file(f);
+            let t = parse(&src);
+            if n > 1 {
+                println!("=== {f} ===");
+            }
+            let errs = count_errors(t.root_node());
+            let caps = query_report(&src, &t, &query);
+            println!("errors: {errs}; captures: {caps}");
+            total += caps;
+        }
+        println!("{total} captures over {n} files");
+    } else {
+        for f in &files {
+            let src = read_file(f);
+            let t = parse(&src);
+            if n > 1 {
+                println!("=== {f} ===");
+            }
+            dump(t.root_node(), &src, 0, None);
+        }
+    }
+}

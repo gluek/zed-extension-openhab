@@ -156,6 +156,11 @@ module.exports = grammar({
     [$.item_definition, $.labeled_statement],
     [$.item_type, $.labeled_statement],
     [$.sitemap_mappings, $.sitemap_visibility],
+    // openHAB: `Text`/`Frame` now appear in both sitemap_frame and
+    // sitemap_widget (a bare `Text item=…` line is a widget); after the
+    // `{ … }` body the parser must defer which one it is until the next
+    // token shows whether the block belongs to a frame or ends the widget.
+    [$.sitemap_frame, $.sitemap_widget],
     // openHAB: single-quoted strings are full strings in the rule DSL, not
     // Java character literals.
     [$.single_quoted_string, $.character_literal],
@@ -1688,12 +1693,17 @@ module.exports = grammar({
 
     _oh_declaration: $ => choice(
       $.rule_declaration,
+      // A sitemap widget line is tried before the generic item_definition:
+      // in a `.sitemap` body `Widget key=value` has no item name, so letting
+      // item_definition claim the type word first mis-parses `url="…"` as a
+      // label. In `.items` files the widget words never appear, so ordering
+      // here is harmless there.
+      $.sitemap_widget,
+      $.sitemap_frame,
       $.item_definition,
       $.thing_definition,
       $.bridge_body,
       $.sitemap_definition,
-      $.sitemap_frame,
-      $.sitemap_widget,
       $.persist_section,
       $.channel_section,
       $.channel_definition,
@@ -2017,7 +2027,7 @@ module.exports = grammar({
     frame_word: _ => choice('Frame', 'Text'),
 
     sitemap_widget: $ => prec.right(seq(
-      field('widget', alias($.dsl_type_word, $.sitemap_widget_type)),
+      field('widget', alias(choice($.dsl_type_word, $.frame_word), $.sitemap_widget_type)),
       repeat(choice(
         field('item', $._oh_sitemap_item),
         field('attribute', $.sitemap_attribute),
@@ -2026,6 +2036,12 @@ module.exports = grammar({
     )),
 
     _oh_sitemap_item: $ => seq('item', '=', field('item', $.qualified_name)),
+
+    // A widget attribute key is a plain identifier, but `item` is special:
+    // `item=X` selects the bound item, everything else is an attribute.
+    // Keeping `item` out of the generic key keeps `item=…` from being read
+    // as `key=value` with a `qualified_name` value.
+    _oh_sitemap_attr_key: _ => choice('label', 'icon', $.identifier),
 
     // `label="x" icon="y" mappings=[Handle="Label"] visibility=[…]`
     sitemap_attribute: $ => choice(

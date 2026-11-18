@@ -10541,8 +10541,17 @@
             "content": {
               "type": "ALIAS",
               "content": {
-                "type": "SYMBOL",
-                "name": "dsl_type_word"
+                "type": "CHOICE",
+                "members": [
+                  {
+                    "type": "SYMBOL",
+                    "name": "dsl_type_word"
+                  },
+                  {
+                    "type": "SYMBOL",
+                    "name": "frame_word"
+                  }
+                ]
               },
               "named": true,
               "value": "sitemap_widget_type"
@@ -11415,6 +11424,10 @@
     [
       "sitemap_mappings",
       "sitemap_visibility"
+    ],
+    [
+      "sitemap_frame",
+      "sitemap_widget"
     ],
     [
       "single_quoted_string",

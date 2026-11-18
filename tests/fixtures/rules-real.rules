@@ -1,0 +1,76 @@
+// Real-syntax rules from /mnt/openhab (hueautomations.rules, switches.rules,
+// vacation.rules, globalcommands.rules): var Timer, [| lambda with body,
+// Thread::sleep(…) chains, (x as T).m(), single-quoted strings,
+// `received command`, `changed to`, map entries with `->`.
+
+var Timer wakeupTimer = null
+
+rule "Aufwachen"
+when
+    Time cron "0 40 7 ? * MON-FRI"
+then
+    if (Automation_Wakeup.state == ON) {
+        val timer = createTimer(now.plusMinutes(10), [|
+            Kitchen_Light.sendCommand(ON)
+            wakeupTimer = null
+        ])
+        Thread::sleep(200)
+        Thread::sleep(100)
+    }
+end
+
+rule "Szene wechseln"
+when
+    Item Trigger_Scene_Bedroom changed to 3 or Item Lights_OnOff received command ON
+then
+    val newValue = (((Trigger_Scene_Bedroom.state as DecimalType).intValue() - 1 + 4) % 4)
+    Trigger_Scene_Bedroom.sendCommand(newValue)
+end
+
+rule "Vacation mode"
+when
+    Item VacationMode received command ON
+then
+    gAll.sendCommand(OFF)
+end
+
+rule "String compare"
+when
+    Item Ikea_Switch_2_State received update
+then
+    if (Ikea_Switch_2_State.state == 'on') {
+        logInfo("switch", "on")
+    } else if (Ikea_Switch_2_State.state == 'off') {
+        logInfo("switch", "off")
+    }
+end
+
+rule "Map entry call"
+when
+    System started
+then
+    val map = sendHttpPost("http://example.com", "text/plain", "k" -> "v")
+    logInfo("map", map)
+end
+
+rule "Changed from/to"
+when
+    Item Front_Door changed from CLOSED to OPEN
+then
+    logInfo("door", "opened")
+end
+
+rule "Member of group"
+when
+    Member of (gWindowsensors) changed
+then
+    logInfo("group", "a window sensor changed")
+end
+
+rule "Lambda with params"
+when
+    Item gLights changed
+then
+    val action = [| member | member.sendCommand(OFF) ]
+    logInfo("lambda", action.toString)
+end

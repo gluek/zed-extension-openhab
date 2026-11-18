@@ -1,0 +1,17 @@
+// Real-syntax sitemap from /mnt/openhab/sitemaps/home.sitemap: nested Text/Frame
+// widgets, mappings with string keys, attributes after the item, non-ASCII label.
+
+sitemap home label="Heimautomatisierung" {
+    Frame {
+        Switch item=Trigger_Scene_Living_Room label="Hue Lampen Szenen" icon="rgb" mappings=[0="Aus", 1="Dimmed", 2="Luisa Hell", 3="Hell"]
+        Switch item=Global_off label="Alles Aus" icon="switch" mappings=["ON"="Aus"]
+    }
+    Frame label="Klima - Schlafzimmer" {
+        Text label="Thermostat" icon="settings" {
+            Setpoint item=bosch_thermostat_bedroom_setpoint label="Setpoint [%.1f °C]" icon="temperature" minValue=8.0 maxValue=25 step=0.5
+            Switch item=bosch_thermostat_bedroom_state label="Status" icon="settings" mappings=["Comfort"="Comfort", "Standby"="Standby", "Off"="Off"]
+        }
+        Switch item=gSchlafen_Temp label="Temperature [%.1f °C]" icon="temperature"
+        Switch item=gSchlafen_Hum label="Humidity [%.1f]" icon="humidity"
+    }
+}

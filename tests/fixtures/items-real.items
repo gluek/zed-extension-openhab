@@ -1,0 +1,22 @@
+// Real-syntax items from /mnt/openhab (groups.items, sensors.items, lamps.items),
+// covering constructs the synthetic fixtures lack: aggregation functions,
+// multiple groups/tags, metadata state description.
+
+Group:Contact:OR(OPEN, CLOSED) gWindowsensors "Fenstersensoren"
+Group:Number:Temperature:AVG gTemperatures "Temperaturen" ["Measurement"]
+Group gAll "Alle"
+
+Switch Kitchen_Light "Kitchen Light" <light> (gAll, gLights) ["Lighting"] {
+    channel="hue:0210:1:bulb1:color"
+    autoupdate="false"
+}
+
+Number:Temperature Outdoor "Outdoor [%.1f °C]" <temperature> (gTemperatures) ["Outdoor", "Temperature"] {
+    stateDescription {
+        pattern="%.1f °C"
+        readOnly="true"
+    }
+}
+
+Contact Front_Door "Front Door [MAP(en.map):%s]" <frontdoor> (gWindowsensors) ["Door"]
+Location Garage "Garage" <location> [ latitude=52.520008, longitude=13.404954, altitude=34 ]

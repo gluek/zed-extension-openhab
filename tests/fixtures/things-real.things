@@ -1,0 +1,20 @@
+// Real-syntax things from /mnt/openhab/things/mqttbroker.things: bridge body on
+// the next line, `Thing topic name` with a space-separated final segment,
+// unit-suffixed channel types (`Type number : temperature`).
+
+Bridge mqtt:broker:nuc "MQTT Broker NUC" [ host="192.168.0.8", port="1883", secure=false, clientID="openhab", user="", password=""]
+{
+    Thing topic logging "Zigbee2MQTT Logging" {
+        Channels:
+            Type string : mqtt_logging "MQTT Logging" [stateTopic="zigbee2mqtt/bridge/logging"]
+    }
+
+    Thing topic sonoff_temphum_bedroom_shelf "Sonoff Temp/Hum Schlafzimmer Regal" {
+        Channels:
+            Type number : temperature "Schlafzimmer Temperatur Regal" [ stateTopic="zigbee2mqtt/sonoff_temphum_bedroom_shelf/temperature" ]
+            Type number : humidity "Schlafzimmer Luftfeuchtigkeit Regal" [ stateTopic="zigbee2mqtt/sonoff_temphum_bedroom_shelf/humidity" ]
+            Type number : battery "Schlafzimmer Batterie Regal" [ stateTopic="zigbee2mqtt/sonoff_temphum_bedroom_shelf/battery" ]
+    }
+}
+
+Thing exec:command:poweroutletA-control "PowerOutlet A Control" [ commandOn="…", commandOff="…" ]

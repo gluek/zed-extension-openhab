@@ -1,0 +1,15 @@
+// Real-syntax persist: newline-separated items (not comma), wildcard patterns,
+// strategy alias via `default =`, restoreOnStartup flag.
+
+Strategies {
+    everyMinute : "0 * * * * ?"
+    everyHour   : "0 0 * * * ?"
+    everyDay    : "0 0 0 * * ?"
+    default = "everyDay"
+}
+
+Items {
+    gTemperatures* : strategy = everyHour, restoreOnStartup
+    Kitchen_Light : strategy = everyChange
+    * : strategy = default
+}

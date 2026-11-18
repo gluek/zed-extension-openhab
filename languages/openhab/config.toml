@@ -1,5 +1,5 @@
 name = "openHAB"
-grammar = "java"
+grammar = "openhab"         # Phase B purpose-built grammar (grammar/); Phase A used "java"
 # Same file associations as the VS Code extension (package.json contributes.languages)
 path_suffixes = ["rules", "script", "items", "sitemap", "things", "persist"]
 line_comments = ["// "]

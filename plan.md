@@ -7,7 +7,7 @@ Port the openHAB Visual Studio Code extension into a **Zed language extension** 
 
 The working directory for the new extension is [`zed/openhab-zed/`](zed/openhab-zed/) — scaffolded, installed as a **dev extension** and highlighting works in Zed. The existing VS Code extension is left untouched; we only *read* from it.
 
-**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B is ACTIVE** — committed as `012417d`: `extension.toml` now points at `[grammars.openhab]` (the in-repo `grammar/`, `file://` repository, rev-pinned), `config.toml` says `grammar = "openhab"`, and all five `languages/openhab/*.scm` queries target the new node names (`c4dbb09`). All 18 real configs in `/mnt/openhab/` incl. `.sitemap` parse with 0 ERROR nodes. Remaining: visual check in Zed (dev-extension flow), publish `openhab/tree-sitter-openhab` and repoint `repository`/`rev`, docs + CI (milestone 6).
+**Status:** Phase A (scaffold + syntax highlighting) is **done and verified in Zed**, and the query files were **rewritten and validated against a parse-tree harness** (`tests/`), which fixed the `.rules` keyword and outline problems (§9). **Item completion works** — the bundled language server is built, tested end-to-end, and shipped (§10). **Phase B is ACTIVE and verified in Zed** — committed as `012417d` (grammar mirror fixed in `be7b8a4`): `extension.toml` points at `[grammars.openhab]`, `config.toml` says `grammar = "openhab"`, all five `languages/openhab/*.scm` queries target the new node names (`c4dbb09`). All 18 real configs in `/mnt/openhab/` incl. `.sitemap` parse with 0 ERROR nodes, and the dev extension installs and highlights correctly in Zed (visual check 2026-11-18). Remaining: publish `openhab/tree-sitter-openhab` and repoint `repository`/`rev`, docs + CI (milestone 6).
 
 **Quick reference — validation commands (run from the repo root `openhab-zed/`):**
 
@@ -177,7 +177,7 @@ Reuse the existing Node LSP server, with small refactors so it runs under Zed as
 | 2 | **LSP packaging** | ✅ *done* — `server/` ships a bundled Node server; stdio; `initializationOptions` + `workspace/configuration` | 23 tests green, incl. end-to-end against a fake openHAB; response verified over stdio |
 | 3 | **LSP completion polish** | ✅ *done with 2* — context-aware completion, type/state docs, auth | Unit + integration tests (`server/test/`) |
 | 4 | **Phase B grammar** | ✅ *committed `ac16be1`* — `grammar/` parses all 18 real `/mnt/openhab` files with 0 ERROR; `.sitemap` ERRORs fixed in `d022b00` (home.sitemap now 0 ERROR) | `tree-sitter parse` clean on real files; harness in `tests/harness` |
-| 5 | **Phase B switch** | ✅ *committed `012417d`* — `extension.toml` `[grammars.openhab]` (file:// → in-repo `grammar/`, rev-pinned) + `config.toml` `grammar = "openhab"`; queries already rewritten in `c4dbb09` | `validate-queries.sh` 5/5 + `check-snapshots.sh` 20 ok + wasm build clean + server 23 pass; visual check in Zed pending |
+| 5 | **Phase B switch** | ✅ *committed `012417d`* (+ grammar-mirror fix `be7b8a4`) — `extension.toml` `[grammars.openhab]` (file:// → `.scratch/grammar-repo` mirror, rev-pinned) + `config.toml` `grammar = "openhab"`; queries rewritten in `c4dbb09` | `validate-queries.sh` 5/5 + `check-snapshots.sh` 20 ok + wasm build clean + server 23 pass + **visual check in Zed passed 2026-11-18** (dev extension installs, highlighting looks right) |
 | 6 | Docs + release | `zed/README.md`, CI to build Rust target matrix, grammar rev pin | CI green |
 
 ### Current known limitations (Phase A)
@@ -640,8 +640,9 @@ Phase A baseline. Snapshots regenerated with the openHAB grammar:
    0 changed, server tests 23 pass, `cargo build --target wasm32-wasip2 --offline`
    clean (all after the flip).
 7. ~~Commit atomically as "Phase B switch"~~ ✅ `012417d`.
-8. **Visual check in Zed** (dev-extension flow) — pending; the one validation
-   step that cannot run headless.
+8. ~~Visual check in Zed~~ ✅ **passed 2026-11-18** — dev extension installs
+   (after the `be7b8a4` grammar-mirror fix) and highlighting looks right at
+   first glance on the real configs.
 9. **Publish the grammar** as `openhab/tree-sitter-openhab` and repoint
    `extension.toml`'s `repository`/`rev` at it (milestone 6) — required for
    anyone building the extension off this machine, since `file://` only works

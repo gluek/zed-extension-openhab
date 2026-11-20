@@ -1,50 +1,74 @@
 use zed_extension_api::{
-    self as zed, serde_json::json, Command, Extension, LanguageServerId, Result, Worktree,
+    self as zed,
+    http_client::{HttpMethod, HttpRequest, RedirectPolicy},
+    serde_json::json,
+    Command, Extension, LanguageServerId, LanguageServerInstallationStatus, Result, Worktree,
 };
 
 const SERVER_ID: &str = "openhab-lsp";
 
-/// Bundled language server entry point, embedded in the extension wasm at
-/// compile time.
-///
-/// `server/openhab-language-server.js` is a single esbuild bundle committed to
-/// the repository, so the extension needs no `npm install` at runtime and no
-/// `node_modules` alongside it.
-const SERVER_SCRIPT_BYTES: &[u8] = include_bytes!("../server/openhab-language-server.js");
-
-/// File name the bundle is extracted to inside the extension's work directory.
+/// Release artifact of this repository that ships the pre-built server
+/// bundle. Pinned to a commit so the download is reproducible; bump it
+/// together with `version` in `extension.toml` when the bundle changes.
+/// The bundle itself is *not* embedded in the extension wasm (Zed's
+/// publishing rules forbid bundling a language server); it is fetched
+/// at runtime through the extension API.
+const SERVER_COMMIT: &str = "87fb014f46ae086b24be20d8820df92429ad29fe";
 const SERVER_SCRIPT_NAME: &str = "openhab-language-server.js";
+/// Raw file URL pinned to `SERVER_COMMIT`; bump together with `version`
+/// in `extension.toml` when the bundle changes.
+const SERVER_DOWNLOAD_URL: &str = "https://raw.githubusercontent.com/gluek/zed-extension-openhab/87fb014f46ae086b24be20d8820df92429ad29fe/server/openhab-language-server.js";
 
 struct OpenHabExtension;
 
 impl OpenHabExtension {
-    /// Extracts the embedded language server bundle into the extension's work
-    /// directory and returns its absolute host path.
+    /// Ensures the language server bundle is present in the extension's work
+    /// directory, downloading it through the Zed extension API if missing or
+    /// stale, and returns its absolute host path.
     ///
     /// Zed runs extension wasm with only the extension work directory
     /// (`$XDG_DATA_HOME/zed/extensions/work/<id>`, exposed as both `.` and
-    /// its absolute path, with `PWD` pointing at it) preopened and writable.
-    /// The installed extension directory is *not* readable from the sandbox,
-    /// so the bundle cannot be probed or referenced in place — it is embedded
-    /// in the wasm and written out here. The returned path is absolute because
-    /// Zed spawns the language server process with the worktree root as CWD,
-    /// not the extension directory.
-    fn server_script() -> Result<String> {
+    /// its absolute path, with `PWD` pointing at it) preopened and writable,
+    /// so the server script is stored there. The returned path is absolute
+    /// because Zed spawns the language server process with the worktree root
+    /// as CWD, not the extension directory.
+    fn server_script(language_server_id: &LanguageServerId) -> Result<String> {
         let work_dir = std::env::var("PWD").map_err(|_| {
             "openHAB extension: PWD is not set; cannot locate the extension work directory"
                 .to_string()
         })?;
         let script = format!("{work_dir}/{SERVER_SCRIPT_NAME}");
-        let needs_write = std::fs::metadata(&script)
-            .map(|m| m.len() as usize != SERVER_SCRIPT_BYTES.len())
-            .unwrap_or(true);
-        if needs_write {
-            std::fs::write(&script, SERVER_SCRIPT_BYTES).map_err(|e| {
-                format!(
-                    "openHAB extension: failed to write language server bundle to {script}: {e}"
-                )
-            })?;
+        let marker = format!("{script}.sha");
+
+        let up_to_date = std::fs::read_to_string(&marker)
+            .map(|recorded| recorded.trim() == SERVER_COMMIT)
+            .unwrap_or(false);
+        if up_to_date && std::fs::metadata(&script).is_ok() {
+            return Ok(script);
         }
+
+        zed::set_language_server_installation_status(
+            language_server_id,
+            &LanguageServerInstallationStatus::Downloading,
+        );
+        let request = HttpRequest::builder()
+            .method(HttpMethod::Get)
+            .url(SERVER_DOWNLOAD_URL)
+            .redirect_policy(RedirectPolicy::FollowAll)
+            .build()?;
+        let response = request.fetch().map_err(|e| {
+            format!("openHAB extension: failed to download the language server from {SERVER_DOWNLOAD_URL}: {e}")
+        })?;
+        if response.body.is_empty() {
+            return Err(format!(
+                "openHAB extension: download of the language server from {SERVER_DOWNLOAD_URL} returned an empty body"
+            ));
+        }
+        std::fs::write(&script, &response.body).map_err(|e| {
+            format!("openHAB extension: failed to write language server bundle to {script}: {e}")
+        })?;
+        std::fs::write(&marker, SERVER_COMMIT)
+            .map_err(|e| format!("openHAB extension: failed to write {marker}: {e}"))?;
         Ok(script)
     }
 
@@ -100,7 +124,10 @@ impl Extension for OpenHabExtension {
             command: zed::node_binary_path()?,
             // `--stdio` is explicit: the server defaults to stdio, but passing it
             // keeps parity with what vscode-languageserver expects under Zed.
-            args: vec![Self::server_script()?, "--stdio".to_string()],
+            args: vec![
+                Self::server_script(language_server_id)?,
+                "--stdio".to_string(),
+            ],
             env: Default::default(),
         })
     }

@@ -10,11 +10,13 @@ extension.wasm
 # Generated capture reports
 /tests/reports
 # Language server: sources are tracked, build output and deps are not.
-# `server/openhab-language-server.js` IS tracked on purpose — it is the bundle
-# the extension ships.
+# `server/openhab-language-server.js` IS tracked on purpose — the extension
+# downloads exactly this committed bundle at runtime (pinned commit in
+# src/openhab.rs), so it must exist in the published repository.
 /server/node_modules
 
 # Agent-internal working notes (kept locally, not published)
 /plan.md
 /agents.md
 /zed_extension.md
+/publish_prerequisites.md

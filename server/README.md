@@ -4,9 +4,12 @@ Item-name completion for openHAB textual configuration files, ported from the
 [openHAB VS Code extension](https://github.com/openhab/openhab-vscode)'s
 `serverJS` directory.
 
-The extension ships a **pre-built bundle** (`server/openhab-language-server.js`,
-committed to the repository). Zed's bundled Node.js runs it; there is no
-`npm install` at runtime and no `node_modules` in the shipped extension.
+The extension downloads a **pre-built bundle** (`server/openhab-language-server.js`,
+committed to this repository at a pinned commit, see `SERVER_COMMIT` in
+`../src/openhab.rs`) through the Zed extension API on first use and stores it in
+the extension's work directory. It is not embedded in the extension wasm. Zed's
+bundled Node.js runs it; there is no `npm install` at runtime and no
+`node_modules` in the shipped extension.
 
 ## Configuration
 

@@ -1,5 +1,5 @@
 {
-    "name": "openhab-zed-language-server",
+    "name": "zed-extension-openhab-language-server",
     "version": "0.1.0",
     "private": true,
     "description": "openHAB item-completion language server for the Zed extension",

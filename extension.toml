@@ -4,7 +4,7 @@ version = "0.1.0"
 schema_version = 1
 authors = ["Gerrit Lükens"]
 description = "openHAB textual configuration support: syntax highlighting, hover, and item completion."
-repository = "https://github.com/gluek/openhab-zed"
+repository = "https://github.com/gluek/zed-extension-openhab"
 
 # Purpose-built tree-sitter-openhab grammar (fork of tree-sitter-java with
 # openHAB DSL productions). The key MUST match the grammar repository's

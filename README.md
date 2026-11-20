@@ -9,9 +9,11 @@ It provides:
 - **Syntax highlighting**, bracket matching, auto-indent, code outline, and text
   objects for all openHAB file types, using a purpose-built tree-sitter grammar
   (`grammar/`, a fork of tree-sitter-java with openHAB DSL productions).
-- **Item-name completion** from your running openHAB instance, via a bundled
-  language server (`server/`) that fetches `/rest/items` and follows the
-  `/rest/events` stream for live updates.
+- **Item-name completion** from your running openHAB instance, via a
+  language server (`server/`) that is downloaded at first use from this
+  repository (pinned commit in `src/openhab.rs`) and run with Zed's bundled
+  Node.js. It fetches `/rest/items` and follows the `/rest/events` stream for
+  live updates.
 - **Hover on an item name** shows its live state (same cache as completion —
   no extra requests).
 
@@ -37,7 +39,7 @@ Search for **openHAB** in Zed's extension list (`zed: extensions`).
 
 ### As a dev extension (from this repository)
 
-1. Clone this repository (`git clone https://github.com/gluek/openhab-zed.git`).
+1. Clone this repository (`git clone https://github.com/gluek/zed-extension-openhab.git`).
 2. In Zed: `zed: install dev extension` and select the cloned directory.
 
 The grammar is fetched from the public
@@ -99,9 +101,9 @@ Layout:
 
 ```
 extension.toml            # manifest: grammar + language server registration
-Cargo.toml / src/         # Rust extension: language_server_command + settings
+Cargo.toml / src/         # Rust extension: downloads the LSP bundle + settings
 grammar/                  # tree-sitter-openhab grammar (fork of tree-sitter-java)
 languages/openhab/        # config.toml + tree-sitter queries (.scm)
-server/                   # bundled Node LSP server (see server/README.md)
+server/                   # Node LSP server source + committed bundle (downloaded at runtime)
 tests/                    # parse harness, fixtures, snapshots, validation scripts
 ```

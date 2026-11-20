@@ -1,17 +1,16 @@
 ; Code outline / structure panel for openHAB (tree-sitter-openhab grammar).
 ;
-; Two sources of outline items:
-;   1. openHAB DSL constructs, which now have their own named nodes
-;      (rule_declaration, item_definition, thing_definition, sitemap_*, persist_*).
-;   2. Java-level declarations that tree-sitter-java's queries/tags.scm does not
-;      cover. That file (applied alongside this one) already outlines classes,
-;      interfaces, and methods, so those are deliberately NOT repeated here.
+; Zed does NOT load the grammar repo's queries/ directory for extension
+; grammars, so tree-sitter-java's tags.scm is not applied either — all outline
+; items come from this file: openHAB DSL constructs (which have their own
+; named nodes) plus the Java-level declarations that may appear in .script
+; files.
 ;
 ; Shapes below were verified with `tests/harness` (openHAB grammar build)
 ; against `tests/fixtures/` — see tests/README.md.
 
 ; ---------------------------------------------------------------------------
-; Java-level declarations missing from tags.scm
+; Java-level declarations (for .script files with plain Java constructs)
 ; ---------------------------------------------------------------------------
 
 (enum_declaration
@@ -67,9 +66,9 @@
   name: (identifier) @name) @item
 
 ; Frames (Frame/Text with a body) outline by their label, with the frame kind
-; as context. Since Phase B, a `Frame label="x" { … }` line parses as
-; sitemap_widget (frame_word is accepted there), so this rule covers that
-; shape; sitemap_frame covers the same tokens when the parser picks the frame
+; as context. A `Frame label="x" { … }` line may parse as sitemap_widget
+; (frame_word is accepted there), so this rule covers that shape;
+; sitemap_frame covers the same tokens when the parser picks the frame
 ; production.
 ((sitemap_widget
   widget: (sitemap_widget_type) @context

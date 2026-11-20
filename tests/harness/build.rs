@@ -3,28 +3,27 @@ use std::path::PathBuf;
 /// Locate a tree-sitter grammar's `src` directory and compile its `parser.c`.
 ///
 /// Controlled by two environment variables, so the same harness can validate
-/// both the Phase A baseline (tree-sitter-java) and the Phase B grammar:
+/// any grammar the extension ships:
 ///
 ///   1. `<GRAMMAR>_GRAMMAR` — path to the grammar's `src` dir
-///      (e.g. `JAVA_GRAMMAR`, `OPENHAB_GRAMMAR`)
+///      (e.g. `OPENHAB_GRAMMAR`)
 ///   2. `<GRAMMAR>_SYMBOL`   — the exported C symbol, without the `tree_sitter_`
 ///      prefix (defaults to the lowercase `<grammar>` name)
 ///
-/// Defaults to the vendored Java grammar at `<repo>/grammars/java/src`.
+/// Defaults to the openHAB grammar at `<repo>/grammar/src`.
 ///
 /// The symbol cannot be changed through `cc::Build`, so it is written to a
 /// generated Rust file that `src/main.rs` includes.
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR");
 
-    let grammar = std::env::var("OPENHAB_ZED_GRAMMAR").unwrap_or_else(|_| "java".into());
+    let grammar = std::env::var("OPENHAB_ZED_GRAMMAR").unwrap_or_else(|_| "openhab".into());
     let path_var = format!("{}_GRAMMAR", grammar.to_uppercase());
     let symbol_var = format!("{}_SYMBOL", grammar.to_uppercase());
 
     let default_src = PathBuf::from(&manifest_dir)
         .join("../..")
-        .join("grammars")
-        .join(&grammar)
+        .join("grammar")
         .join("src");
     let src =
         std::env::var(&path_var).unwrap_or_else(|_| default_src.to_string_lossy().into_owned());
@@ -35,9 +34,7 @@ fn main() {
         panic!(
             "harness: grammar not found at {}\n\n\
              Set {path_var} to a grammar's src directory (the one containing parser.c).\n\
-             For the default Java grammar, open the extension once in Zed so it is\n\
-             downloaded into grammars/java/, or check out tree-sitter-java at the rev\n\
-             pinned in extension.toml.",
+             The default is the openHAB grammar at <repo>/grammar/src.",
             parser_c.display()
         );
     }

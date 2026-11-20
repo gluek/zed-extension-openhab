@@ -7564,6 +7564,16 @@ var require_ItemStore = __commonJS({
     var Item = require_Item();
     var RECONNECT_DELAY_MS = 1e4;
     var EVENT_TOPICS = "smarthome/items";
+    function normalizeBaseUrl(host, port) {
+      const raw = (host || "localhost").trim().replace(/\/+$/, "");
+      if (/^https?:\/\//i.test(raw)) {
+        return raw;
+      }
+      if (raw.includes(":")) {
+        return `http://${raw}`;
+      }
+      return `http://${raw}:${Number(port) || 8080}`;
+    }
     var ItemStore = class {
       /**
        * @param {object} options
@@ -7595,15 +7605,18 @@ var require_ItemStore = __commonJS({
       /** Update the config without reconnecting (used for non-connection keys). */
       configure(config) {
         this.config = {
-          host: config.host || "localhost",
-          port: Number(config.port) || 8080,
+          // `host` may be given as a bare host, a host:port pair, or a full
+          // URL with a scheme. Normalize to a base URL so both
+          // `"host": "openhab.local"` and `"host": "https://openhab.local"`
+          // work; an explicit `port` only applies to bare hosts.
+          baseUrl: normalizeBaseUrl(config.host, config.port),
           authToken: config.authToken || null,
           basicAuth: config.basicAuth || null
         };
       }
       /** Base REST URL, e.g. `http://localhost:8080/rest`. */
       get baseUrl() {
-        return `http://${this.config.host}:${this.config.port}/rest`;
+        return `${this.config.baseUrl}/rest`;
       }
       /** Authorization headers, empty when no credentials are configured. */
       get authHeaders() {
@@ -7621,14 +7634,14 @@ var require_ItemStore = __commonJS({
         try {
           await this.loadItems();
         } catch (error) {
-          this.log(`cannot reach openHAB at ${this.config.host}:${this.config.port} (${error.message}); item completion disabled`);
+          this.log(`cannot reach openHAB at ${this.config.baseUrl} (${error.message}); item completion disabled`);
           this.scheduleReconnect();
           return;
         }
         if (this.stopped) {
           return;
         }
-        this.log(`loaded ${this.items.size} items from ${this.config.host}:${this.config.port}`);
+        this.log(`loaded ${this.items.size} items from ${this.config.baseUrl}`);
         this.listen();
       }
       /**
@@ -7922,7 +7935,7 @@ var require_Server = __commonJS({
     }
     var Server2 = class {
       start() {
-        this.connection = createConnection(ProposedFeatures.all);
+        this.connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
         this.settings = { ...DEFAULT_SETTINGS };
         this.store = new ItemStore({ log: (message) => this.log(message) });
         this.connection.onInitialize(this.initialize.bind(this));

@@ -92,7 +92,7 @@ function offersItems(extension, context) {
         case 'persist':
             // `.things` never takes item names. `.persist` does, but only inside
             // its `Items { }` block; per-line detection there is not worth the
-            // false positives, so leave it to Phase B.
+            // false positives, so item completion is skipped for both.
             return false
         default:
             return false

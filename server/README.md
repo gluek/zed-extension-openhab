@@ -29,8 +29,8 @@ Settings are read from `lsp.openhab-lsp.settings` in Zed's `settings.json`:
 
 | Key         | Default     | Meaning                                              |
 | ----------- | ----------- | ---------------------------------------------------- |
-| `host`      | `localhost` | openHAB host or IP                                   |
-| `port`      | `8080`      | REST API port                                        |
+| `host`      | `localhost` | bare host, `host:port`, or full URL incl. scheme (`https://…`) |
+| `port`      | `8080`      | REST API port (only applies when `host` has no port) |
 | `authToken` | `null`      | openHAB 4 API token, sent as `Authorization: Bearer` |
 | `basicAuth` | `null`      | `{ "username": …, "password": … }` for basic auth    |
 | `lspEnabled`| `true`      | set `false` to disable completion entirely           |
@@ -43,8 +43,10 @@ effect without restarting Zed.
 
 These are deliberate; see the comments in `src/` for the reasoning.
 
-- **Transport.** Transport is not sniffed from argv. Zed passes `--stdio`; the
-  server uses stdio unless `--node-ipc` is given.
+- **Transport.** stdio is passed explicitly:
+  `createConnection(ProposedFeatures.all, process.stdin, process.stdout)`.
+  Zed passes `--stdio` on the command line; argv sniffing (upstream's
+  `--node-ipc` detection) threw "Connection input stream is not set" under Zed.
 - **No `eventsource` dependency.** The event stream is consumed with Node's
   built-in `fetch`, which follows openHAB's redirect and needs no bundle.
 - **Auth is implemented.** The VS Code server talks plain `http://` only;
@@ -64,14 +66,18 @@ These are deliberate; see the comments in `src/` for the reasoning.
 
 ```sh
 cd server
-npm install          # once; installs esbuild + the two runtime deps
-npm run build        # rebuild openhab-language-server.js after editing src/
-npm test             # node:test unit + end-to-end tests
+npm --cache ../.scratch/npm-cache install   # once; installs esbuild + the two runtime deps
+npm --cache ../.scratch/npm-cache run build  # rebuild openhab-language-server.js after editing src/
+node --test test/completion.test.js test/itemStore.test.js   # unit tests (24 pass)
 ```
 
-`npm test` includes an end-to-end test that spawns the bundled server over
-stdio against a fake openHAB REST API and asserts that item completions come
-back for a `.rules` file.
+On this machine use Zed's managed Node
+(`~/.local/share/zed/node/node-v24.22.1-linux-x64/bin/node`) — `/usr/bin/node`
+is broken (missing `libsimdjson.so.36`) — and pass test files explicitly to
+`node --test` (a bare `test/` dir fails on this Node version; `integration.test.js`
+hangs, pre-existing). `npm test` also includes an end-to-end test that spawns
+the bundled server over stdio against a fake openHAB REST API and asserts that
+item completions come back for a `.rules` file.
 
 **Always rebuild the bundle before committing** — the committed `.js` is what
 users actually run, so a stale bundle silently ignores source changes.

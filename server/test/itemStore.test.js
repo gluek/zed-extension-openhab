@@ -37,9 +37,27 @@ test('authToken wins over basic auth (openHAB 4 API tokens)', () => {
 test('port defaults when absent or invalid', () => {
     const store = new ItemStore()
     store.configure({ host: 'h' })
-    assert.strictEqual(store.config.port, 8080)
+    assert.strictEqual(store.baseUrl, 'http://h:8080/rest')
     store.configure({ host: 'h', port: 'not-a-port' })
-    assert.strictEqual(store.config.port, 8080)
+    assert.strictEqual(store.baseUrl, 'http://h:8080/rest')
+})
+
+test('baseUrl accepts a full URL with scheme (https) as host', () => {
+    const store = new ItemStore()
+    store.configure({ host: 'https://openhab.intra.example.de', port: 443, authToken: 't' })
+    assert.strictEqual(store.baseUrl, 'https://openhab.intra.example.de/rest')
+})
+
+test('baseUrl keeps an explicit port embedded in a bare host', () => {
+    const store = new ItemStore()
+    store.configure({ host: 'openhab.local:9090', port: 8080 })
+    assert.strictEqual(store.baseUrl, 'http://openhab.local:9090/rest')
+})
+
+test('baseUrl strips trailing slashes from a URL host', () => {
+    const store = new ItemStore()
+    store.configure({ host: 'https://openhab.local/' })
+    assert.strictEqual(store.baseUrl, 'https://openhab.local/rest')
 })
 
 test('ItemStateEvent updates the cached state and type', () => {

@@ -27,6 +27,24 @@ const RECONNECT_DELAY_MS = 10_000
 /** openHAB event topics that change the item set or item state. */
 const EVENT_TOPICS = 'smarthome/items'
 
+/**
+ * Normalize the `host` setting into a base URL without a trailing slash.
+ *
+ * Accepts `"localhost"`, `"localhost:8080"` (port from the host wins over the
+ * `port` setting), `"http://host:port"`, and `"https://host"`. Bare hosts get
+ * `http://` and the configured port (default 8080).
+ */
+function normalizeBaseUrl(host, port) {
+    const raw = (host || 'localhost').trim().replace(/\/+$/, '')
+    if (/^https?:\/\//i.test(raw)) {
+        return raw
+    }
+    if (raw.includes(':')) {
+        return `http://${raw}`
+    }
+    return `http://${raw}:${Number(port) || 8080}`
+}
+
 class ItemStore {
     /**
      * @param {object} options
@@ -59,8 +77,11 @@ class ItemStore {
     /** Update the config without reconnecting (used for non-connection keys). */
     configure(config) {
         this.config = {
-            host: config.host || 'localhost',
-            port: Number(config.port) || 8080,
+            // `host` may be given as a bare host, a host:port pair, or a full
+            // URL with a scheme. Normalize to a base URL so both
+            // `"host": "openhab.local"` and `"host": "https://openhab.local"`
+            // work; an explicit `port` only applies to bare hosts.
+            baseUrl: normalizeBaseUrl(config.host, config.port),
             authToken: config.authToken || null,
             basicAuth: config.basicAuth || null,
         }
@@ -68,7 +89,7 @@ class ItemStore {
 
     /** Base REST URL, e.g. `http://localhost:8080/rest`. */
     get baseUrl() {
-        return `http://${this.config.host}:${this.config.port}/rest`
+        return `${this.config.baseUrl}/rest`
     }
 
     /** Authorization headers, empty when no credentials are configured. */
@@ -88,14 +109,14 @@ class ItemStore {
         try {
             await this.loadItems()
         } catch (error) {
-            this.log(`cannot reach openHAB at ${this.config.host}:${this.config.port} (${error.message}); item completion disabled`)
+            this.log(`cannot reach openHAB at ${this.config.baseUrl} (${error.message}); item completion disabled`)
             this.scheduleReconnect()
             return
         }
         if (this.stopped) {
             return
         }
-        this.log(`loaded ${this.items.size} items from ${this.config.host}:${this.config.port}`)
+        this.log(`loaded ${this.items.size} items from ${this.config.baseUrl}`)
         this.listen()
     }
 

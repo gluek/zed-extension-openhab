@@ -1,16 +1,16 @@
 ; openHAB highlighting
 ;
-; Grammar: tree-sitter-openhab (Phase B, grammar/ — a fork of tree-sitter-java
-; with openHAB DSL productions). Every DSL construct has its own named node
-; (rule_declaration, item_definition, sitemap_widget, …), so unlike Phase A no
-; keyword matching by content on identifiers is needed.
+; Grammar: tree-sitter-openhab (grammar/ — a fork of tree-sitter-java with
+; openHAB DSL productions). Every DSL construct has its own named node
+; (rule_declaration, item_definition, sitemap_widget, …), so no keyword
+; matching by content on identifiers is needed for DSL words.
 ;
-; Zed compiles this file on top of tree-sitter-java's own queries/highlights.scm
-; (the fork keeps the upstream rules, which already handle variables, methods,
-; annotations, types, literals, comments, and the real Java keywords). This file
-; therefore only adds what the Java upstream queries get wrong or miss for
-; openHAB files. Duplicating the upstream rules would create two rules per node
-; and make themes pick unpredictably.
+; IMPORTANT: Zed does NOT load a grammar repository's queries/ directory for
+; extension grammars — only this languages/openhab/*.scm set is used. So the
+; upstream tree-sitter-java highlights (strings, comments, numbers, Java
+; keywords, variables, …) are NOT automatically applied; the subset that
+; matters for openHAB files is reproduced below, adapted from tree-sitter-java
+; queries/highlights.scm. See plan.md (investigation log, 2026-11-19 entries).
 ;
 ; Capture names below are restricted to the set Zed themes support, ordered as
 ; "preferred @ fallback" where a more specific capture may be missing from some
@@ -20,16 +20,20 @@
 ; against `tests/fixtures/` — see tests/README.md.
 
 ; ---------------------------------------------------------------------------
-; Functions / methods
+; Variables
 ; ---------------------------------------------------------------------------
-;
-; Add `@function` as a fallback for themes that do not style @function.method.
-; The upstream query already captures the same nodes as @function.method.
+
+(identifier) @variable
+
+; ---------------------------------------------------------------------------
+; Methods / functions
+; ---------------------------------------------------------------------------
 
 (method_declaration
   name: (identifier) @function.method @function)
 (method_invocation
   name: (identifier) @function.method @function)
+(super) @function.builtin @keyword
 
 ; openHAB semicolon-less statements in rule bodies: `logInfo(…)`,
 ; `A.sendCommand(ON)`, `Thread::sleep(200)`.
@@ -41,26 +45,166 @@
   name: (identifier) @function.method @function)
 (oh_method_call_statement
   name: (identifier) @function.method @function)
-(super) @function.builtin @keyword
 
 ; ---------------------------------------------------------------------------
-; Imports
+; Annotations
+; ---------------------------------------------------------------------------
+
+(annotation
+  name: (identifier) @attribute)
+(marker_annotation
+  name: (identifier) @attribute)
+
+"@" @operator
+
+; ---------------------------------------------------------------------------
+; Types
+; ---------------------------------------------------------------------------
+
+(type_identifier) @type
+(scoped_type_identifier) @type
+
+(interface_declaration
+  name: (identifier) @type)
+(class_declaration
+  name: (identifier) @type)
+(enum_declaration
+  name: (identifier) @type)
+
+((field_access
+  object: (identifier) @type)
+ (#match? @type "^[A-Z]"))
+((scoped_identifier
+  scope: (identifier) @type)
+ (#match? @type "^[A-Z]"))
+((method_invocation
+  object: (identifier) @type)
+ (#match? @type "^[A-Z]"))
+((method_reference
+  . (identifier) @type)
+ (#match? @type "^[A-Z]"))
+
+(constructor_declaration
+  name: (identifier) @type)
+
+[
+  (boolean_type)
+  (integral_type)
+  (floating_point_type)
+  (void_type)
+] @type.builtin
+
+; ---------------------------------------------------------------------------
+; Constants / builtins
+; ---------------------------------------------------------------------------
+
+((identifier) @constant
+ (#match? @constant "^[_]*[A-Z][A-Z\\d_]+$"))
+
+(this) @variable.builtin @variable
+
+; `ON` / `OFF` / `NULL` / `UNDEF` in trigger states and commands are plain
+; identifiers in the grammar; match them by content so they read as builtins,
+; not variables.
+((identifier) @constant.builtin @constant
+ (#match? @constant "^(ON|OFF|NULL|UNDEF)$"))
+
+; ---------------------------------------------------------------------------
+; Literals: strings, comments, numbers, booleans
 ; ---------------------------------------------------------------------------
 ;
-; `import org.eclipse.smarthome.model.script.ScriptServiceUtil` nests
-; scoped_identifier nodes. Upstream only types an uppercase-leading *scope*
-; segment, so the imported type itself is left as a variable. openHAB users
-; scan imports by the last segment, so make that one a type.
+; openHAB accepts single-quoted strings in rule bodies and sitemaps; in
+; expression position the lexer may still produce a Java `character_literal`
+; (e.g. `'on'` in `if (x.state == 'on')`), so both are captured as @string.
 
-(import_declaration
-  (scoped_identifier
-    name: (identifier) @type))
-(import_declaration
-  (identifier) @type)
+[
+  (string_literal)
+  (single_quoted_string)
+  (character_literal)
+] @string
+(escape_sequence) @string.escape
+(string_interpolation) @string.special
+
+[
+  (hex_integer_literal)
+  (decimal_integer_literal)
+  (octal_integer_literal)
+  (binary_integer_literal)
+  (decimal_floating_point_literal)
+  (hex_floating_point_literal)
+] @number
+
+[
+  (true)
+  (false)
+  (null_literal)
+] @constant.builtin
+
+[
+  (line_comment)
+  (block_comment)
+] @comment
 
 ; ---------------------------------------------------------------------------
+; Keywords (Java + openHAB DSL)
+; ---------------------------------------------------------------------------
+
+[
+  "abstract"
+  "assert"
+  "break"
+  "case"
+  "catch"
+  "class"
+  "continue"
+  "default"
+  "do"
+  "else"
+  "enum"
+  "exports"
+  "extends"
+  "final"
+  "finally"
+  "for"
+  "if"
+  "implements"
+  "import"
+  "instanceof"
+  "interface"
+  "module"
+  "native"
+  "new"
+  "non-sealed"
+  "open"
+  "opens"
+  "package"
+  "permits"
+  "private"
+  "protected"
+  "provides"
+  "public"
+  "requires"
+  "record"
+  "return"
+  "sealed"
+  "static"
+  "strictfp"
+  "switch"
+  "synchronized"
+  "throw"
+  "throws"
+  "to"
+  "transient"
+  "transitive"
+  "try"
+  "uses"
+  "volatile"
+  "while"
+  "with"
+  "yield"
+] @keyword
+
 ; openHAB DSL keywords — now real grammar tokens, no content matching needed
-; ---------------------------------------------------------------------------
 
 (rule_declaration "rule" @keyword)
 (rule_declaration "script" @keyword)
@@ -105,6 +249,21 @@
 
 ; `(x as DecimalType)` cast.
 (oh_as_cast "as" @keyword)
+
+; ---------------------------------------------------------------------------
+; Imports
+; ---------------------------------------------------------------------------
+;
+; `import org.eclipse.smarthome.model.script.ScriptServiceUtil` nests
+; scoped_identifier nodes. Upstream only types an uppercase-leading *scope*
+; segment, so the imported type itself is left as a variable. openHAB users
+; scan imports by the last segment, so make that one a type.
+
+(import_declaration
+  (scoped_identifier
+    name: (identifier) @type))
+(import_declaration
+  (identifier) @type)
 
 ; ---------------------------------------------------------------------------
 ; .items
@@ -178,27 +337,11 @@
 (persist_config "strategy" @property)
 
 ; ---------------------------------------------------------------------------
-; Constants
-; ---------------------------------------------------------------------------
-
-; Builtins
-
-(this) @variable.builtin @variable
-(null_literal) @constant.builtin
-(true) @constant.builtin
-(false) @constant.builtin
-
-; `ON` / `OFF` in trigger states and commands are plain identifiers in the
-; grammar; match them by content so they read as builtins, not variables.
-((identifier) @constant.builtin @constant
- (#match? @constant "^(ON|OFF|NULL|UNDEF)$"))
-
-; ---------------------------------------------------------------------------
 ; Punctuation and operators
 ; ---------------------------------------------------------------------------
 ;
-; Upstream already captures `@` and Java keywords. Only the delimiters openHAB
-; files use heavily are added; brackets and `.` come from the grammar itself.
+; Only the delimiters openHAB files use heavily are added; brackets and `.`
+; come from the grammar itself.
 
 ["," ";"] @punctuation.delimiter
 

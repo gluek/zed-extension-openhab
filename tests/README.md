@@ -6,25 +6,27 @@ generating parse tree snapshots for the openHAB language server extension.
 ## The Harness
 
 The `tests/harness` directory is a Rust crate that:
-- Parses source files using the pinned tree-sitter-java grammar
+- Parses source files using the purpose-built openHAB grammar in `grammar/`
 - Dumps full parse trees for inspection
 - Maps query captures onto source lines for validation
 
 The harness binary is built with:
 ```sh
-cd tests/harness && cargo build --offline
+cd tests/harness && CARGO_HOME=../../.scratch/cargo \
+  CARGO_TARGET_DIR=../../.scratch/target-openhab \
+  OPENHAB_ZED_GRAMMAR=openhab OPENHAB_GRAMMAR=$PWD/../../grammar/src \
+  cargo build --offline
 ```
 The helper scripts build it for you if it is missing.
 
 ### Why a Custom Cargo Home?
 
-The grammar file lives in `grammars/java/`, which is gitignored. This directory
-is downloaded by Zed on first load; the harness resolves it relative to
-`CARGO_MANIFEST_DIR` and fails with a hint if it is absent.
+Crate dependencies are cached in a project-local registry (`.scratch/cargo`)
+because `~/.cargo` is read-only in this environment; the build works offline.
 
 Environment variable override:
 ```sh
-JAVA_GRAMMAR=/path/to/grammar  # Optional, if grammar location differs
+OPENHAB_GRAMMAR=/path/to/grammar/src  # Optional, if grammar location differs
 ```
 
 ## Commands
@@ -105,18 +107,10 @@ The `tests/trees/` directory pins **parse tree only**. This is important:
 
 ### Fixture Parsing Quality
 
-Not all fixtures parse cleanly. This is expected behavior:
-
-| File Type | Parsing Quality | Notes |
-|-----------|-----------------|-------|
-| `.rules` / `.script` | Best | Well-structured |
-| `.items` / `.sitemap` | Partial | Mixed structured + raw text |
-| `.things` / `.persist` | Poor | Mostly `ERROR` nodes |
-
-The poor parses in `.things` and `.persist` are expected and represent
-exactly what **Phase B** (a purpose-built openHAB grammar) will fix. The
-current tree-sitter-java grammar is generic and doesn't understand openHAB's
-specific syntax.
+The fixtures are chosen to parse cleanly under the openHAB grammar (0 ERROR
+nodes); the `*-edge.*` files document the remaining known mis-parses. If a
+fixture suddenly gains ERROR nodes, the grammar regressed — check
+`./tests/check-snapshots.sh` first.
 
 ## Workflow
 
@@ -161,9 +155,9 @@ documentation. Regenerate them as needed.
 
 ```
 tests/
-├── harness/               # Rust harness crate (do not edit)
+├── harness/               # Rust harness crate
 │   ├── src/
-│   └── target/debug/harness
+│   └── (build output in .scratch/target-openhab)
 ├── fixtures/              # Source files for testing (do not edit)
 │   ├── sample.*
 │   ├── r*.rules
@@ -175,6 +169,8 @@ tests/
 ├── validate-queries.sh    # Validates all .scm files compile
 ├── update-snapshots.sh    # Generates fresh tree snapshots
 ├── check-snapshots.sh     # Compares trees against snapshots
+├── report-captures.sh     # Generates capture reports
+├── make-grammar-mirror.sh # Rebuilds .scratch/grammar-repo from grammar/
 └── README.md              # This file
 ```
 

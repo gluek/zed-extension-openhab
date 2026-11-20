@@ -6,28 +6,22 @@ authors = ["openHAB contributors"]
 description = "openHAB textual configuration support: syntax highlighting and item completion."
 repository = "https://github.com/openhab/openhab-vscode"
 
-# Phase B: purpose-built tree-sitter-openhab grammar (fork of tree-sitter-java
-# with openHAB DSL productions), developed in ./grammar of this repo.
+# Purpose-built tree-sitter-openhab grammar (fork of tree-sitter-java with
+# openHAB DSL productions), developed in ./grammar of this repo.
 #
 # The key MUST match the grammar repository's exported C symbol: Zed compiles
 # with `-Wl,--export=tree_sitter_<key>`, and our parser.c defines
-# `tree_sitter_openhab`. The Phase A baseline (tree-sitter-java under the key
-# `java`) is kept as a comment below for reference / rollback.
+# `tree_sitter_openhab`.
 #
 # For local development the grammar is referenced via a local git mirror of
 # ./grammar (Zed clones the repository and checks out `rev`, so the path must
-# be a git repo whose root contains grammar.js/src — see tests/ or plan.md §11
+# be a git repo whose root contains grammar.js/src — see tests/ or plan.md
 # for how to rebuild the mirror: .scratch/grammar-repo). Before publishing the
 # extension, point `repository` at the published openhab/tree-sitter-openhab
-# repo and update `rev` (milestone 6).
+# repo and update `rev`.
 [grammars.openhab]
 repository = "file:///home/zerotas/Projects/openhab-zed/.scratch/grammar-repo"
 rev = "452b9f6f9f8750343aad36f771559e8e61ddb16a"
-
-# Phase A fallback (tree-sitter-java), kept for reference:
-# [grammars.java]
-# repository = "https://github.com/tree-sitter/tree-sitter-java"
-# rev = "94703d5a6bed02b98e438d7cad1136c01a60ba2c"
 
 [language_servers.openhab-lsp]
 name = "openHAB Language Server"

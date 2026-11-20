@@ -3,29 +3,18 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-# Grammar the queries are validated against. Phase B (the purpose-built
-# tree-sitter-openhab grammar in grammar/) is the active one; set
-# OPENHAB_ZED_GRAMMAR=java to validate against the Phase A baseline instead.
+# Grammar the queries are validated against: the purpose-built
+# tree-sitter-openhab grammar in grammar/.
 GRAMMAR="${OPENHAB_ZED_GRAMMAR:-openhab}"
 
-if [ "$GRAMMAR" = "openhab" ]; then
-    HARNESS=".scratch/target-openhab/debug/harness"
-    if [ ! -x "$HARNESS" ]; then
-        echo "Building openHAB harness..."
-        ( cd tests/harness && CARGO_HOME=../../.scratch/cargo \
-            CARGO_TARGET_DIR=../../.scratch/target-openhab \
-            OPENHAB_ZED_GRAMMAR=openhab \
-            OPENHAB_GRAMMAR="$PWD/../../grammar/src" \
-            cargo build --offline )
-    fi
-else
-    HARNESS="tests/harness/target/debug/harness"
-    # Build the harness if the binary is missing. Crates are cached in the local
-    # registry (network access is restricted), so this works offline.
-    if [ ! -x "$HARNESS" ]; then
-        echo "Building harness..."
-        ( cd tests/harness && cargo build --offline )
-    fi
+HARNESS=".scratch/target-openhab/debug/harness"
+if [ ! -x "$HARNESS" ]; then
+    echo "Building openHAB harness..."
+    ( cd tests/harness && CARGO_HOME=../../.scratch/cargo \
+        CARGO_TARGET_DIR=../../.scratch/target-openhab \
+        OPENHAB_ZED_GRAMMAR=openhab \
+        OPENHAB_GRAMMAR="$PWD/../../grammar/src" \
+        cargo build --offline )
 fi
 
 echo "validating queries against grammar: $GRAMMAR ($HARNESS)"

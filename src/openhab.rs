@@ -4,24 +4,48 @@ use zed_extension_api::{
 
 const SERVER_ID: &str = "openhab-lsp";
 
-/// Bundled language server entry point, relative to the extension root.
+/// Bundled language server entry point, embedded in the extension wasm at
+/// compile time.
 ///
 /// `server/openhab-language-server.js` is a single esbuild bundle committed to
 /// the repository, so the extension needs no `npm install` at runtime and no
 /// `node_modules` alongside it.
-const SERVER_SCRIPT: &str = "server/openhab-language-server.js";
+const SERVER_SCRIPT_BYTES: &[u8] = include_bytes!("../server/openhab-language-server.js");
+
+/// File name the bundle is extracted to inside the extension's work directory.
+const SERVER_SCRIPT_NAME: &str = "openhab-language-server.js";
 
 struct OpenHabExtension;
 
 impl OpenHabExtension {
+    /// Extracts the embedded language server bundle into the extension's work
+    /// directory and returns its absolute host path.
+    ///
+    /// Zed runs extension wasm with only the extension work directory
+    /// (`$XDG_DATA_HOME/zed/extensions/work/<id>`, exposed as both `.` and
+    /// its absolute path, with `PWD` pointing at it) preopened and writable.
+    /// The installed extension directory is *not* readable from the sandbox,
+    /// so the bundle cannot be probed or referenced in place — it is embedded
+    /// in the wasm and written out here. The returned path is absolute because
+    /// Zed spawns the language server process with the worktree root as CWD,
+    /// not the extension directory.
     fn server_script() -> Result<String> {
-        if std::fs::metadata(SERVER_SCRIPT).is_ok() {
-            return Ok(SERVER_SCRIPT.to_string());
+        let work_dir = std::env::var("PWD").map_err(|_| {
+            "openHAB extension: PWD is not set; cannot locate the extension work directory"
+                .to_string()
+        })?;
+        let script = format!("{work_dir}/{SERVER_SCRIPT_NAME}");
+        let needs_write = std::fs::metadata(&script)
+            .map(|m| m.len() as usize != SERVER_SCRIPT_BYTES.len())
+            .unwrap_or(true);
+        if needs_write {
+            std::fs::write(&script, SERVER_SCRIPT_BYTES).map_err(|e| {
+                format!(
+                    "openHAB extension: failed to write language server bundle to {script}: {e}"
+                )
+            })?;
         }
-        Err(format!(
-            "openHAB language server bundle ({SERVER_SCRIPT}) is missing. \
-             Run `npm install && npm run build` in the server/ directory and reload the extension."
-        ))
+        Ok(script)
     }
 
     /// User overrides from Zed's `lsp.openhab-lsp.settings`.

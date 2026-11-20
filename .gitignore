@@ -1,5 +1,4 @@
 /target
-/grammars
 extension.wasm
 
 # Scratch workspace (harness CARGO_HOME, npm cache)

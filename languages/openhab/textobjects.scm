@@ -1,8 +1,8 @@
 ; Text objects ("select around / inside") for openHAB.
 ;
-; Java declarations are already covered by the upstream grammar (method and
-; class text objects), so this file only adds openHAB-shaped regions and the
-; comment objects that the upstream grammar does not provide.
+; Zed does not load the grammar repo's queries/ for extension grammars, so
+; there is no upstream coverage — this file defines all text objects: the
+; openHAB-shaped regions plus the Java-shaped ones rule bodies may contain.
 ;
 ; `block` plus the DSL bodies (rule_body, sitemap_body, thing_body,
 ; bridge_body) are the "function"-shaped regions: selecting around a rule or a

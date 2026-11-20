@@ -72,8 +72,8 @@ Item completion talks to your openHAB REST API. Configure it in Zed's
 
 | Key          | Default     | Meaning                                                |
 | ------------ | ----------- | ------------------------------------------------------ |
-| `host`       | `localhost` | openHAB host or IP                                     |
-| `port`       | `8080`      | REST API port                                          |
+| `host`       | `localhost` | openHAB host, `host:port`, or full URL incl. scheme (`https://…`) |
+| `port`       | `8080`      | REST API port (only used for bare hosts)               |
 | `authToken`  | `null`      | openHAB 4 API token, sent as `Authorization: Bearer`  |
 | `basicAuth`  | `null`      | `{ "username": "…", "password": "…" }` for basic auth |
 | `lspEnabled` | `true`      | set `false` to disable the language server entirely    |
@@ -85,15 +85,19 @@ retries every 10 seconds; it never crashes.
 
 ## Development
 
-See [`plan.md`](plan.md) for the full architecture and work breakdown, and
+See [`plan.md`](plan.md) for status, architecture, and caveats, and
 [`tests/README.md`](tests/README.md) for the query-validation harness.
 
 ```sh
 ./tests/validate-queries.sh                                     # queries compile (5/5)
 ./tests/check-snapshots.sh                                      # parse-tree snapshots (20 ok)
-(cd server && npm --cache ../.scratch/npm-cache test)            # language server tests (23 pass)
+(cd server && node --test test/completion.test.js test/itemStore.test.js)  # language server tests (24 pass)
 CARGO_HOME=$PWD/.scratch/cargo cargo build --target wasm32-wasip2 --offline   # extension wasm
 ```
+
+(Use a working Node — on this machine that is Zed's managed Node at
+`~/.local/share/zed/node/node-v24.22.1-linux-x64/bin/node`; `/usr/bin/node` is
+broken. Pass test files explicitly, not `node --test test/`.)
 
 Layout:
 

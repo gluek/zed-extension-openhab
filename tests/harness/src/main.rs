@@ -21,7 +21,7 @@ mod grammar_symbol {
     include!(concat!(env!("OUT_DIR"), "/grammar_symbol.rs"));
 }
 
-fn java_lang() -> tree_sitter::Language {
+fn grammar_lang() -> tree_sitter::Language {
     unsafe {
         std::mem::transmute::<*const tree_sitter::ffi::TSLanguage, tree_sitter::Language>(
             grammar_symbol::language_symbol(),
@@ -40,14 +40,14 @@ fn read_file(path: &str) -> String {
 
 fn parse(src: &str) -> tree_sitter::Tree {
     let mut parser = Parser::new();
-    parser.set_language(&java_lang()).unwrap();
+    parser.set_language(&grammar_lang()).unwrap();
     parser.parse(src, None).unwrap()
 }
 
 /// Compile a query file; exits 1 with a clear message on an invalid query.
 fn compile_query(path: &str) -> Query {
     let scm = read_file(path);
-    match Query::new(&java_lang(), &scm) {
+    match Query::new(&grammar_lang(), &scm) {
         Ok(query) => query,
         Err(err) => fail(&format!("{path}: invalid query: {err:?}")),
     }

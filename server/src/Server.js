@@ -60,9 +60,10 @@ function resolveSettings(raw) {
 
 class Server {
     start() {
-        // With no transport argument, vscode-languageserver uses stdio, which is
-        // what Zed passes (`--stdio`). Do not let it infer `--node-ipc`.
-        this.connection = createConnection(ProposedFeatures.all)
+        // vscode-languageserver's `createConnection()` inspects `process.argv`
+        // for a transport flag; when none is present it throws. Zed passes
+        // `--stdio` on the command line, so pass the streams explicitly.
+        this.connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout)
 
         this.settings = { ...DEFAULT_SETTINGS }
         this.store = new ItemStore({ log: (message) => this.log(message) })

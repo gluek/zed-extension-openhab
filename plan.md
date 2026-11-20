@@ -36,13 +36,13 @@ Implementation: `server/src/hover.js` (`wordAt`/`hoverFor`), wired into
 `Server.js`; 5 unit tests in `server/test/hover.test.js`, 29/29 pass; bundle
 and extension wasm rebuilt. Remaining: visual check in Zed itself, then commit.
 
-**Remaining work:** publish to personal GitHub — prepared in
-`.scratch/grammar-publish/` (grammar repo layout: grammar.js, src/, queries/,
-test/corpus/, tree-sitter.json, README) and `.scratch/PUBLISH.md` (runbook:
-push `gluek/tree-sitter-openhab`, repoint `extension.toml` at it, push
-`gluek/openhab-zed`, fresh-clone verify in Zed). Then the Zed marketplace via a
-PR to `zed-industries/extensions`. Note: regenerate `src/parser.c` with
-`tree-sitter generate` on a machine where the CLI works before pushing the
+**Remaining work:** push this repo to `github.com/gluek/openhab-zed`
+(HTTPS — SSH port 22 is blocked in this environment), fresh-clone verify in
+Zed (grammar compiles from the public `gluek/tree-sitter-openhab` rev), then
+the Zed marketplace via a PR to `zed-industries/extensions`. Prepared layout
+and runbook: `.scratch/grammar-publish/` and `.scratch/PUBLISH.md`. Caveat:
+regenerate `src/parser.c` with `tree-sitter generate` on a machine where the
+CLI works (it fails in this sandbox) before pushing grammar changes.
 grammar repo — it fails in this sandbox.
 
 ## Caveats / known limitations
@@ -174,13 +174,16 @@ Decisions worth keeping:
   `Switch A` (item_definition vs. Java statement); solved by declaring the
   conflicts so both versions are explored until the label arrives.
 
-### Grammar mirror for local development
+### Grammar source
 
-Zed **clones** the grammar `repository` and fetches the pinned `rev`, so a
-`file://` path must be a real git repo whose root contains `grammar.js`/`src/`.
-`.scratch/grammar-repo` is a git mirror of `grammar/`; `extension.toml` pins its
-HEAD. After changing `grammar/`, run `./tests/make-grammar-mirror.sh` and pin
-the printed rev (verify mode: `./tests/make-grammar-mirror.sh <pinned-rev>`).
+The grammar lives in `grammar/` in this repo and is published as
+[`gluek/tree-sitter-openhab`](https://github.com/gluek/tree-sitter-openhab)
+(`extension.toml` pins its `rev`, currently `a7121b755c3b`). After changing
+`grammar/`, push to the grammar repo and repoint the `rev` — Zed clones the
+`repository` and fetches the pinned `rev`, so it must be a real git repo whose
+root contains `grammar.js`/`src/`. The old `.scratch/grammar-repo` `file://`
+mirror (and `tests/make-grammar-mirror.sh`) existed only while the grammar was
+unpublished; the mirror is no longer referenced.
 
 ### Query gotchas (apply to all `languages/openhab/*.scm`)
 

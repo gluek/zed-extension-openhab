@@ -37,19 +37,14 @@ Search for **openHAB** in Zed's extension list (`zed: extensions`).
 
 ### As a dev extension (from this repository)
 
-1. Clone this repository.
-2. In Zed: `zed: install dev extension` and select this directory.
+1. Clone this repository (`git clone https://github.com/gluek/openhab-zed.git`).
+2. In Zed: `zed: install dev extension` and select the cloned directory.
 
-   The grammar is referenced from a local git mirror of `grammar/`
-   (`.scratch/grammar-repo`). If it is missing or stale, rebuild it and update
-   the `rev` in `extension.toml`:
-
-   ```sh
-   ./tests/make-grammar-mirror.sh                 # prints the new rev to pin
-   ```
-
-   (When the extension is published, `extension.toml` points at the public
-   `openhab/tree-sitter-openhab` repository instead and this step is unnecessary.)
+The grammar is fetched from the public
+[`gluek/tree-sitter-openhab`](https://github.com/gluek/tree-sitter-openhab)
+repository at the `rev` pinned in `extension.toml`, so no local mirror step is
+needed. During grammar development, `grammar/` in this repo is the source of
+truth — push changes to the grammar repo and repoint the `rev`.
 
 ## Configuration
 

@@ -7563,7 +7563,7 @@ var require_ItemStore = __commonJS({
     "use strict";
     var Item = require_Item();
     var RECONNECT_DELAY_MS = 1e4;
-    var EVENT_TOPICS = "smarthome/items";
+    var EVENT_TOPICS = "smarthome/items/*,openhab/items/*";
     function normalizeBaseUrl(host, port) {
       const raw = (host || "localhost").trim().replace(/\/+$/, "");
       if (/^https?:\/\//i.test(raw)) {
@@ -7713,7 +7713,7 @@ var require_ItemStore = __commonJS({
         this.reconnectTimer.unref?.();
       }
       /**
-       * Apply a single event from `smarthome/items`.
+       * Apply a single event from the item event stream.
        *
        * @param {string} payload the JSON `data:` line of an SSE event
        */

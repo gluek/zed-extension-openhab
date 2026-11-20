@@ -66,24 +66,42 @@ test('ItemStateEvent updates the cached state and type', () => {
     assert.strictEqual(store.items.get('Kitchen_Light').state, 'OFF')
 })
 
+test('ItemStateEvent on the openHAB 4 topic prefix (openhab/items) also updates the cache', () => {
+    const { store } = seededStore()
+    store.handleEvent(event('openhab/items/Kitchen_Light/state', 'ItemStateEvent', { type: 'OnOff', value: 'OFF' }))
+    assert.strictEqual(store.items.get('Kitchen_Light').state, 'OFF')
+    store.handleEvent(event('openhab/items/Kitchen_Light/statechanged', 'ItemStateChangedEvent', { type: 'OnOff', value: 'ON' }))
+    assert.strictEqual(store.items.get('Kitchen_Light').state, 'ON')
+})
+
+test('event stream subscribes to both smarthome and openhab topic prefixes', () => {
+    const store = new ItemStore()
+    store.configure({ host: 'h', port: 1 })
+    // The filter is a constant on the module; assert via the source of truth
+    // by re-reading the constant through a listen() URL capture instead.
+    // Simpler: check the module constant directly.
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ItemStore.js'), 'utf8')
+    assert.ok(src.includes("smarthome/items/*,openhab/items/*"), 'EVENT_TOPICS covers both prefixes')
+})
+
 test('ItemStateChangedEvent with a bare string payload still works', () => {
     const { store } = seededStore()
     store.handleEvent(event('smarthome/items/Kitchen_Light/statechanged', 'ItemStateChangedEvent', 'OFF'))
     assert.strictEqual(store.items.get('Kitchen_Light').state, 'OFF')
 })
 
-test('ItemAddedEvent and ItemRemovedEvent resize the cache', () => {
+test('ItemAddedEvent and ItemRemovedEvent resize the cache (openHAB 4 topic)', () => {
     const { store } = seededStore()
-    store.handleEvent(event('smarthome/items/D1', 'ItemAddedEvent', { name: 'D1', type: 'Dimmer', state: '50' }))
+    store.handleEvent(event('openhab/items/D1/added', 'ItemAddedEvent', { name: 'D1', type: 'Dimmer', state: '50' }))
     assert.strictEqual(store.size, 2)
-    store.handleEvent(event('smarthome/items/D1', 'ItemRemovedEvent', { name: 'D1' }))
+    store.handleEvent(event('openhab/items/D1/removed', 'ItemRemovedEvent', { name: 'D1' }))
     assert.strictEqual(store.size, 1)
 })
 
 test('ItemUpdatedEvent takes the new copy from the [new, old] payload', () => {
     const { store } = seededStore()
     store.handleEvent(
-        event('smarthome/items/Kitchen_Light', 'ItemUpdatedEvent', [
+        event('openhab/items/Kitchen_Light/updated', 'ItemUpdatedEvent', [
             { name: 'Kitchen_Light', type: 'Switch', label: 'Renamed' },
             { name: 'Kitchen_Light', type: 'Switch' },
         ]),

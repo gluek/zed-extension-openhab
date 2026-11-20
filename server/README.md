@@ -51,7 +51,11 @@ These are deliberate; see the comments in `src/` for the reasoning.
   Zed passes `--stdio` on the command line; argv sniffing (upstream's
   `--node-ipc` detection) threw "Connection input stream is not set" under Zed.
 - **No `eventsource` dependency.** The event stream is consumed with Node's
-  built-in `fetch`, which follows openHAB's redirect and needs no bundle.
+  built-in `fetch`, which follows openHAB's redirect and needs no bundle. The
+  subscription filter is `smarthome/items/*,openhab/items/*`: openHAB 3
+  publishes item events under `smarthome/items`, openHAB 4 under `openhab/items`
+  (see `ItemEventFactory` in openhab-core), and the SSE endpoint anchors the
+  filter at the end, so the trailing `*` makes it a prefix match.
 - **Auth is implemented.** The VS Code server talks plain `http://` only;
   this one sends an API token or basic auth when configured.
 - **Context-aware completion.** Upstream returns every item in every position

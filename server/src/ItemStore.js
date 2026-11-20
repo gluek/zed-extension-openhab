@@ -24,8 +24,16 @@ const Item = require('./Item')
 /** Delay before retrying a failed event stream, in milliseconds. */
 const RECONNECT_DELAY_MS = 10_000
 
-/** openHAB event topics that change the item set or item state. */
-const EVENT_TOPICS = 'smarthome/items'
+/**
+ * openHAB event topic filter for the `/rest/events` stream.
+ *
+ * openHAB 3 used the `smarthome/items` prefix; since openHAB 4 the event bus
+ * publishes under `openhab/items` (see ItemEventFactory in openhab-core), and
+ * the SSE endpoint matches the `topics` filter against the full topic with an
+ * implicit `$` anchor, so the trailing `*` is what makes this a prefix match.
+ * Both spellings are subscribed to so the server works against openHAB 3 and 4.
+ */
+const EVENT_TOPICS = 'smarthome/items/*,openhab/items/*'
 
 /**
  * Normalize the `host` setting into a base URL without a trailing slash.
@@ -193,7 +201,7 @@ class ItemStore {
     }
 
     /**
-     * Apply a single event from `smarthome/items`.
+     * Apply a single event from the item event stream.
      *
      * @param {string} payload the JSON `data:` line of an SSE event
      */
@@ -205,6 +213,9 @@ class ItemStore {
         } catch {
             return
         }
+        // Topics look like `openhab/items/<name>/state` (openHAB 4+) or
+        // `smarthome/items/<name>/state` (openHAB 3); the item name is the
+        // third path segment in both.
         const name = (event.topic || '').split('/')[2]
         if (!name) {
             return

@@ -54,6 +54,10 @@ These are deliberate; see the comments in `src/` for the reasoning.
 - **Context-aware completion.** Upstream returns every item in every position
   (its own `TODO`). This server only offers item names where openHAB accepts
   them, and never inside strings or comments.
+- **Hover shows live state.** Hovering an item name returns just its current
+  state as Markdown, prefixed with `State: ` (`` State: `ON` ``, or
+  `State: _(none yet)_` when never set) — resolved against the same cache
+  completion uses, so it is live via the event stream.
 - **Failures are visible.** Connection problems are reported as LSP log
   messages (shown in Zed's log), and the stream reconnects with a 10 s backoff.
 - **No diagnostics.** Upstream's `DocumentValidator` is a stub returning an

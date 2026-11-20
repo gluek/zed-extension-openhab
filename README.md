@@ -12,6 +12,8 @@ It provides:
 - **Item-name completion** from your running openHAB instance, via a bundled
   language server (`server/`) that fetches `/rest/items` and follows the
   `/rest/events` stream for live updates.
+- **Hover on an item name** shows its live state (same cache as completion —
+  no extra requests).
 
 ## Supported files
 
@@ -79,9 +81,10 @@ Item completion talks to your openHAB REST API. Configure it in Zed's
 | `lspEnabled` | `true`      | set `false` to disable the language server entirely    |
 
 Completion is offered where openHAB accepts item names (`.items`, `.rules`,
-`.script`, `.sitemap`) and is suppressed inside strings and comments. If openHAB
-is unreachable, the server logs a message in Zed's log (`zed: open log`) and
-retries every 10 seconds; it never crashes.
+`.script`, `.sitemap`) and is suppressed inside strings and comments. Hovering
+an item name shows its current state. If openHAB is unreachable, the server
+logs a message in Zed's log (`zed: open log`) and retries every 10 seconds;
+it never crashes.
 
 ## Development
 
@@ -91,7 +94,7 @@ See [`plan.md`](plan.md) for status, architecture, and caveats, and
 ```sh
 ./tests/validate-queries.sh                                     # queries compile (5/5)
 ./tests/check-snapshots.sh                                      # parse-tree snapshots (20 ok)
-(cd server && node --test test/completion.test.js test/itemStore.test.js)  # language server tests (24 pass)
+(cd server && node --test test/completion.test.js test/itemStore.test.js test/hover.test.js)  # language server tests (29 pass)
 CARGO_HOME=$PWD/.scratch/cargo cargo build --target wasm32-wasip2 --offline   # extension wasm
 ```
 

@@ -29,6 +29,7 @@ const { TextDocument } = require('vscode-languageserver-textdocument')
 
 const ItemStore = require('./ItemStore')
 const completion = require('./completion')
+const hover = require('./hover')
 const { extensionOf } = require('./files')
 
 const DEFAULT_SETTINGS = {
@@ -73,6 +74,7 @@ class Server {
         this.connection.onExit(this.exit.bind(this))
         this.connection.onDidChangeConfiguration(this.configurationChanged.bind(this))
         this.connection.onCompletion(this.getCompletion.bind(this))
+        this.connection.onHover(this.getHover.bind(this))
 
         this.documents = new TextDocuments(TextDocument)
         this.documents.listen(this.connection)
@@ -97,6 +99,7 @@ class Server {
                     resolveProvider: false,
                     triggerCharacters: ['=', '(', ',', '[', '<'],
                 },
+                hoverProvider: true,
             },
             serverInfo: { name: 'openHAB Language Server', version: '0.1.0' },
         }
@@ -174,6 +177,26 @@ class Server {
             return { isIncomplete: false, items: [] }
         }
         return { isIncomplete: false, items: completion.itemCompletions(this.store.all) }
+    }
+
+    /** Hover: live state of the item under the cursor, when it is a known item. */
+    getHover(params) {
+        const document = this.documents.get(params.textDocument.uri)
+        if (!document) {
+            this.log(`hover: document not found: ${params.textDocument.uri}`)
+            return null
+        }
+        const text = document.getText()
+        const word = hover.wordAt(text, params.position)
+        if (!word) {
+            return null
+        }
+        const item = this.store.items.get(word)
+        if (!item) {
+            this.log(`hover: "${word}" at ${params.position.line}:${params.position.character} is not a known item (${this.store.size} cached)`)
+            return null
+        }
+        return hover.hoverFor(item)
     }
 
     exit() {

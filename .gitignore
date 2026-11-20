@@ -1,4 +1,6 @@
 /target
+# Zed-downloaded grammar clones (build artifacts; the real grammar lives in grammar/)
+/grammars
 extension.wasm
 
 # Scratch workspace (harness CARGO_HOME, npm cache)

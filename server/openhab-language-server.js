@@ -7889,6 +7889,38 @@ var require_completion = __commonJS({
   }
 });
 
+// src/hover.js
+var require_hover = __commonJS({
+  "src/hover.js"(exports2, module2) {
+    "use strict";
+    var WORD_CHAR = /[A-Za-z0-9_$]/;
+    function wordAt(source, position) {
+      const line = source.split(/\r?\n/)[position.line] || "";
+      const col = Math.min(position.character, line.length);
+      if (!WORD_CHAR.test(line[col] || "") && !(col > 0 && WORD_CHAR.test(line[col - 1]))) {
+        return null;
+      }
+      let start = col;
+      while (start > 0 && WORD_CHAR.test(line[start - 1])) {
+        start -= 1;
+      }
+      let end = col;
+      while (end < line.length && WORD_CHAR.test(line[end])) {
+        end += 1;
+      }
+      const word = line.slice(start, end);
+      return word || null;
+    }
+    function hoverFor(item) {
+      const value = item.state ? `State: \`${item.state}\`` : "State: _(none yet)_";
+      return {
+        contents: { kind: "markdown", value }
+      };
+    }
+    module2.exports = { wordAt, hoverFor };
+  }
+});
+
 // src/files.js
 var require_files2 = __commonJS({
   "src/files.js"(exports2, module2) {
@@ -7915,6 +7947,7 @@ var require_Server = __commonJS({
     var { TextDocument: TextDocument2 } = (init_main(), __toCommonJS(main_exports));
     var ItemStore = require_ItemStore();
     var completion = require_completion();
+    var hover = require_hover();
     var { extensionOf } = require_files2();
     var DEFAULT_SETTINGS = {
       host: "localhost",
@@ -7943,6 +7976,7 @@ var require_Server = __commonJS({
         this.connection.onExit(this.exit.bind(this));
         this.connection.onDidChangeConfiguration(this.configurationChanged.bind(this));
         this.connection.onCompletion(this.getCompletion.bind(this));
+        this.connection.onHover(this.getHover.bind(this));
         this.documents = new TextDocuments(TextDocument2);
         this.documents.listen(this.connection);
         this.connection.listen();
@@ -7962,7 +7996,8 @@ var require_Server = __commonJS({
             completionProvider: {
               resolveProvider: false,
               triggerCharacters: ["=", "(", ",", "[", "<"]
-            }
+            },
+            hoverProvider: true
           },
           serverInfo: { name: "openHAB Language Server", version: "0.1.0" }
         };
@@ -8030,6 +8065,25 @@ var require_Server = __commonJS({
           return { isIncomplete: false, items: [] };
         }
         return { isIncomplete: false, items: completion.itemCompletions(this.store.all) };
+      }
+      /** Hover: live state of the item under the cursor, when it is a known item. */
+      getHover(params) {
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+          this.log(`hover: document not found: ${params.textDocument.uri}`);
+          return null;
+        }
+        const text = document.getText();
+        const word = hover.wordAt(text, params.position);
+        if (!word) {
+          return null;
+        }
+        const item = this.store.items.get(word);
+        if (!item) {
+          this.log(`hover: "${word}" at ${params.position.line}:${params.position.character} is not a known item (${this.store.size} cached)`);
+          return null;
+        }
+        return hover.hoverFor(item);
       }
       exit() {
         this.store.stop();

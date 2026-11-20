@@ -25,6 +25,17 @@ Everything is **implemented and verified**:
   `zed::node_binary_path()`, bundle embedded in the wasm), and item completion
   works against a live openHAB instance.
 
+**In progress (uncommitted, 2026-11-19):** hover support — `textDocument/hover`
+showing **only the live state** of the item under the cursor, prefixed with
+`State: ` (e.g. `` State: `ON` ``, or `State: _(none yet)_` for NULL/UNDEF).
+**Verified end-to-end** against a fake REST API over stdio
+(`.scratch/lsp-probe-hover.py`, PASS: `hoverProvider: true` advertised; hovering
+`Kitchen_Light` in a `.rules` body returns `State: \`ON\``; hovering a non-item
+word returns null; `Kitchen_Temperature` returns `State: \`21.5\``).
+Implementation: `server/src/hover.js` (`wordAt`/`hoverFor`), wired into
+`Server.js`; 5 unit tests in `server/test/hover.test.js`, 29/29 pass; bundle
+and extension wasm rebuilt. Remaining: visual check in Zed itself, then commit.
+
 **Remaining work:** publish the grammar as `openhab/tree-sitter-openhab` and
 repoint `extension.toml`'s `repository`/`rev` at it — required for anyone
 building the extension off this machine, since the `file://` mirror only works
@@ -43,6 +54,11 @@ locally. Docs/CI for release are optional follow-ups.
   Both are captured as `@string`, so highlighting is correct either way.
 - **No `.persist` completion** — item names only inside its `Items { }` block;
   per-line detection was too false-positive-prone.
+- Hover (`textDocument/hover`, 2026-11-19) resolves the identifier under the
+  cursor against the live item cache and shows **only the state** as Markdown,
+  prefixed with `State: ` (`` State: `ON` ``, or `State: _(none yet)_` when
+  NULL/UNDEF); unknown words get no hover. Verified over stdio with a fake REST
+  API; Zed visual check pending.
 - Sitemap widget lines whose first attribute is not `item=`/`label=`/`icon=`
   (e.g. `Webview url="…"`) can mis-parse as `item_definition`. No active line in
   the real `home.sitemap` hits this.
@@ -221,6 +237,17 @@ string literal yields none; SSE events handled: `ItemStateEvent`,
 `ItemStateChangedEvent` (both openHAB 4 `{type, value}` and bare string),
 `ItemAdded`, `ItemUpdated` (`[new, old]`), `ItemRemoved`; malformed payloads
 tolerated.
+
+**Hover (2026-11-19, verified over stdio):** `hoverProvider: true` is
+advertised and `Server.getHover` resolves the identifier under the cursor
+(`hover.wordAt`, using the same word characters as
+`languages/openhab/config.toml`: alphanumerics plus `_`/`$`) against the live
+`ItemStore` cache, returning **only the state** as Markdown, prefixed with
+`State: ` (`` State: `ON` ``; `State: _(none yet)_` when NULL/UNDEF). Unknown
+words return `null` (no hover). Probe: `.scratch/lsp-probe-hover.py` — reads
+use `select()` with a deadline (a blocking `readline()` hung the first
+version); polls completion to confirm the item cache seeded before hovering.
+29/29 unit tests pass.
 
 ---
 

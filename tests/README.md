@@ -170,14 +170,13 @@ tests/
 ├── update-snapshots.sh    # Generates fresh tree snapshots
 ├── check-snapshots.sh     # Compares trees against snapshots
 ├── report-captures.sh     # Generates capture reports
-├── make-grammar-mirror.sh # Rebuilds .scratch/grammar-repo from grammar/
 └── README.md              # This file
 ```
 
 ## Rules
 
 - **Do NOT edit**: `languages/**`, `tests/fixtures/**`, `extension.toml`,
-  `Cargo.toml`, `src/**`, `plan.md`, `.gitignore`
+  `Cargo.toml`, `src/**`, `.gitignore`
 - POSIX sh only: no bashisms, no arrays, no `local` outside functions
 - Deterministic output: all lists are sorted
 - Bound command runtime: cargo build is cached, other commands are fast

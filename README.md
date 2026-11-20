@@ -83,19 +83,17 @@ it never crashes.
 
 ## Development
 
-See [`plan.md`](plan.md) for status, architecture, and caveats, and
-[`tests/README.md`](tests/README.md) for the query-validation harness.
+See [`tests/README.md`](tests/README.md) for the query-validation harness.
 
 ```sh
 ./tests/validate-queries.sh                                     # queries compile (5/5)
 ./tests/check-snapshots.sh                                      # parse-tree snapshots (20 ok)
 (cd server && node --test test/completion.test.js test/itemStore.test.js test/hover.test.js)  # language server tests (29 pass)
-CARGO_HOME=$PWD/.scratch/cargo cargo build --target wasm32-wasip2 --offline   # extension wasm
+cargo build --release --target wasm32-wasip2                    # extension wasm (needs the wasm32-wasip2 target)
 ```
 
-(Use a working Node — on this machine that is Zed's managed Node at
-`~/.local/share/zed/node/node-v24.22.1-linux-x64/bin/node`; `/usr/bin/node` is
-broken. Pass test files explicitly, not `node --test test/`.)
+(When hacking in a restricted sandbox, crate deps may need a local cargo home:
+`CARGO_HOME=$PWD/.scratch/cargo ... --offline`.)
 
 Layout:
 

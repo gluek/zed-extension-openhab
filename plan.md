@@ -36,10 +36,14 @@ Implementation: `server/src/hover.js` (`wordAt`/`hoverFor`), wired into
 `Server.js`; 5 unit tests in `server/test/hover.test.js`, 29/29 pass; bundle
 and extension wasm rebuilt. Remaining: visual check in Zed itself, then commit.
 
-**Remaining work:** publish the grammar as `openhab/tree-sitter-openhab` and
-repoint `extension.toml`'s `repository`/`rev` at it — required for anyone
-building the extension off this machine, since the `file://` mirror only works
-locally. Docs/CI for release are optional follow-ups.
+**Remaining work:** publish to personal GitHub — prepared in
+`.scratch/grammar-publish/` (grammar repo layout: grammar.js, src/, queries/,
+test/corpus/, tree-sitter.json, README) and `.scratch/PUBLISH.md` (runbook:
+push `gluek/tree-sitter-openhab`, repoint `extension.toml` at it, push
+`gluek/openhab-zed`, fresh-clone verify in Zed). Then the Zed marketplace via a
+PR to `zed-industries/extensions`. Note: regenerate `src/parser.c` with
+`tree-sitter generate` on a machine where the CLI works before pushing the
+grammar repo — it fails in this sandbox.
 
 ## Caveats / known limitations
 

@@ -24,13 +24,17 @@ const {
     createConnection,
     ProposedFeatures,
     DidChangeConfigurationNotification,
+    DidChangeWatchedFilesNotification,
 } = require('vscode-languageserver')
 const { TextDocument } = require('vscode-languageserver-textdocument')
+const { fileURLToPath } = require('node:url')
 
 const ItemStore = require('./ItemStore')
 const completion = require('./completion')
 const hover = require('./hover')
 const { extensionOf } = require('./files')
+const { ItemIndex, NAME_RE } = require('./itemIndex')
+const { findReferencesInWorktree } = require('./references')
 
 const DEFAULT_SETTINGS = {
     host: 'localhost',
@@ -75,11 +79,65 @@ class Server {
         this.connection.onDidChangeConfiguration(this.configurationChanged.bind(this))
         this.connection.onCompletion(this.getCompletion.bind(this))
         this.connection.onHover(this.getHover.bind(this))
+        this.connection.onDefinition(this.getDefinition.bind(this))
+        this.connection.onReferences(this.getReferences.bind(this))
+        this.connection.onPrepareRename(this.prepareRename.bind(this))
+        this.connection.onRenameRequest(this.rename.bind(this))
 
         this.documents = new TextDocuments(TextDocument)
         this.documents.listen(this.connection)
 
+        // Item definitions in the worktree's .items files (go-to-definition /
+        // references / rename). Root comes from initialize params; scanned
+        // lazily on first use and refreshed on watched-file events.
+        this.index = null
+        this.connection.onDidChangeWatchedFiles((params) => {
+            if (!this.index) {
+                return
+            }
+            for (const change of params.changes) {
+                if (change.uri.endsWith('.items')) {
+                    this.index.refresh(fileURLToPath(change.uri))
+                }
+            }
+        })
+
         this.connection.listen()
+    }
+
+    /** Absolute worktree root from the initialize params, if any. */
+    get rootDir() {
+        const folders = this.initializeParams?.workspaceFolders
+        if (folders && folders.length && folders[0].uri) {
+            try {
+                return fileURLToPath(folders[0].uri)
+            } catch {
+                /* fall through */
+            }
+        }
+        const rootUri = this.initializeParams?.rootUri
+        if (rootUri) {
+            try {
+                return fileURLToPath(rootUri)
+            } catch {
+                /* fall through */
+            }
+        }
+        return null
+    }
+
+    /** Lazily create and scan the definition index. */
+    getIndex() {
+        if (!this.index) {
+            const rootDir = this.rootDir
+            if (!rootDir) {
+                return null
+            }
+            this.index = new ItemIndex({ rootDir })
+            this.index.scan()
+            this.log(`indexed ${this.index.size} item definitions under ${rootDir}`)
+        }
+        return this.index
     }
 
     /**
@@ -91,6 +149,7 @@ class Server {
     }
 
     initialize(params) {
+        this.initializeParams = params
         this.settings = resolveSettings(params.initializationOptions)
         return {
             capabilities: {
@@ -100,6 +159,9 @@ class Server {
                     triggerCharacters: ['=', '(', ',', '[', '<'],
                 },
                 hoverProvider: true,
+                definitionProvider: true,
+                referencesProvider: true,
+                renameProvider: { prepareProvider: true },
             },
             serverInfo: { name: 'openHAB Language Server', version: '0.1.0' },
         }
@@ -197,6 +259,148 @@ class Server {
             return null
         }
         return hover.hoverFor(item)
+    }
+
+    /**
+     * Go-to-definition: the `.items` line that defines the item under the
+     * cursor. If the cursor is already on a definition, returns it (self).
+     * Items that exist only on the openHAB instance (no local definition)
+     * return null — there is no file to jump to.
+     */
+    getDefinition(params) {
+        const document = this.documents.get(params.textDocument.uri)
+        if (!document) {
+            return null
+        }
+        const word = hover.wordAt(document.getText(), params.position)
+        if (!word) {
+            return null
+        }
+        const index = this.getIndex()
+        const def = index && index.get(word)
+        if (!def) {
+            return null
+        }
+        return { uri: def.uri, range: def.range }
+    }
+
+    /**
+     * References: every usage of the item under the cursor across the
+     * worktree's openHAB files. `includeDeclaration` adds the definition.
+     */
+    getReferences(params) {
+        const document = this.documents.get(params.textDocument.uri)
+        if (!document) {
+            return []
+        }
+        const word = hover.wordAt(document.getText(), params.position)
+        if (!word) {
+            return []
+        }
+        const rootDir = this.rootDir
+        if (!rootDir) {
+            return []
+        }
+        // Include any open documents even if outside the scanned root.
+        const extraFiles = [...this.documents.all()].map((d) => {
+            try {
+                return fileURLToPath(d.uri)
+            } catch {
+                return null
+            }
+        }).filter(Boolean)
+        const locations = findReferencesInWorktree(rootDir, word, { extraFiles })
+        if (params.context?.includeDeclaration) {
+            const index = this.getIndex()
+            const def = index && index.get(word)
+            if (def) {
+                locations.push({ uri: def.uri, range: def.range })
+            }
+        }
+        return locations
+    }
+
+    /**
+     * Prepare-rename: only allow renaming when the word under the cursor is a
+     * known item (locally defined or present on the openHAB instance).
+     * Returns the word's range, or null to reject the rename.
+     */
+    prepareRename(params) {
+        const document = this.documents.get(params.textDocument.uri)
+        if (!document) {
+            return null
+        }
+        const word = hover.wordAt(document.getText(), params.position)
+        if (!word || !NAME_RE.test(word)) {
+            return null
+        }
+        const index = this.getIndex()
+        const known = (index && index.has(word)) || this.store.items.has(word)
+        if (!known) {
+            return null
+        }
+        // Compute the word's range from the cursor position.
+        const line = document.getText().split(/\r?\n/)[params.position.line] || ''
+        const col = Math.min(params.position.character, line.length)
+        let start = col
+        while (start > 0 && hover.WORD_CHAR_TEST(line[start - 1])) {
+            start -= 1
+        }
+        let end = col
+        while (end < line.length && hover.WORD_CHAR_TEST(line[end])) {
+            end += 1
+        }
+        return {
+            range: {
+                start: { line: params.position.line, character: start },
+                end: { line: params.position.line, character: end },
+            },
+            placeholder: word,
+        }
+    }
+
+    /**
+     * Rename: rewrite every reference (and the definition) of the item to the
+     * new name, as a WorkspaceEdit grouped by file. Workspace-text only — the
+     * running openHAB instance is not renamed (that would need a REST call
+     * and is a deliberate non-goal for now).
+     */
+    rename(params) {
+        const document = this.documents.get(params.textDocument.uri)
+        if (!document) {
+            return null
+        }
+        const word = hover.wordAt(document.getText(), params.position)
+        const newName = params.newName
+        if (!word || !NAME_RE.test(newName)) {
+            return null
+        }
+        const rootDir = this.rootDir
+        if (!rootDir) {
+            return null
+        }
+        const extraFiles = [...this.documents.all()].map((d) => {
+            try {
+                return fileURLToPath(d.uri)
+            } catch {
+                return null
+            }
+        }).filter(Boolean)
+        const locations = findReferencesInWorktree(rootDir, word, { extraFiles })
+        const index = this.getIndex()
+        const def = index && index.get(word)
+        if (def) {
+            locations.push({ uri: def.uri, range: def.range })
+        }
+        /** @type {Record<string, Array<{range: object, newText: string}>>} */
+        const changes = {}
+        for (const loc of locations) {
+            ;(changes[loc.uri] = changes[loc.uri] || []).push({
+                range: loc.range,
+                newText: newName,
+            })
+        }
+        return { changes }
     }
 
     exit() {

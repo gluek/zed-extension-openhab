@@ -16,6 +16,10 @@ It provides:
   live updates.
 - **Hover on an item name** shows its live state (same cache as completion —
   no extra requests).
+- **Go-to-definition, references, and rename** for item names across all
+  openHAB files in the project (`.items` definitions ↔ usages in `.rules`,
+  `.script`, `.sitemap`, `.persist`). Works through Zed's native
+  `editor: go to definition` / `editor: find all references` / rename commands.
 
 ## Supported files
 

@@ -14,6 +14,11 @@
 /** Characters that make up an openHAB item name at the cursor. */
 const WORD_CHAR = /[A-Za-z0-9_$]/
 
+/** Test a single character against WORD_CHAR (used by Server for ranges). */
+function WORD_CHAR_TEST(ch) {
+    return WORD_CHAR.test(ch || '')
+}
+
 /**
  * The item name under the cursor, or null when the cursor is not on a word.
  *
@@ -56,4 +61,4 @@ function hoverFor(item) {
     }
 }
 
-module.exports = { wordAt, hoverFor }
+module.exports = { wordAt, hoverFor, WORD_CHAR, WORD_CHAR_TEST }

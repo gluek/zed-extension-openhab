@@ -7894,6 +7894,9 @@ var require_hover = __commonJS({
   "src/hover.js"(exports2, module2) {
     "use strict";
     var WORD_CHAR = /[A-Za-z0-9_$]/;
+    function WORD_CHAR_TEST(ch) {
+      return WORD_CHAR.test(ch || "");
+    }
     function wordAt(source, position) {
       const line = source.split(/\r?\n/)[position.line] || "";
       const col = Math.min(position.character, line.length);
@@ -7917,7 +7920,7 @@ var require_hover = __commonJS({
         contents: { kind: "markdown", value }
       };
     }
-    module2.exports = { wordAt, hoverFor };
+    module2.exports = { wordAt, hoverFor, WORD_CHAR, WORD_CHAR_TEST };
   }
 });
 
@@ -7934,6 +7937,360 @@ var require_files2 = __commonJS({
   }
 });
 
+// src/itemIndex.js
+var require_itemIndex = __commonJS({
+  "src/itemIndex.js"(exports2, module2) {
+    "use strict";
+    var fs = require("node:fs");
+    var path = require("node:path");
+    var { pathToFileURL } = require("node:url");
+    var ITEM_TYPES = [
+      "Color",
+      "Contact",
+      "DateTime",
+      "Dimmer",
+      "Group",
+      "Image",
+      "Location",
+      "Number",
+      "Player",
+      "Rollershutter",
+      "String",
+      "Switch",
+      "Call",
+      "StringList",
+      "QuantityType",
+      "Default",
+      "Selection",
+      "Setpoint",
+      "Slider",
+      "Colorpicker",
+      "Chart",
+      "Webview",
+      "Video",
+      "Mapview"
+    ];
+    var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".scratch", "target"]);
+    var DEFINITION_RE = new RegExp(
+      // The trailing `(?!\w|=)` keeps a sitemap widget line (`Switch item=X …`)
+      // from matching: `item` must be a standalone name token, not a keyword
+      // glued to `=X`.
+      `^\\s*(?:${ITEM_TYPES.join("|")})(?::[A-Za-z_]\\w*(?:\\([^)]*\\))?)*\\s+([A-Za-z_]\\w*)(?!\\w|=)`
+    );
+    var NAME_RE = /^[A-Za-z_]\w*$/;
+    function parseDefinitionLine(line, lineNumber) {
+      const match = DEFINITION_RE.exec(line);
+      if (!match) {
+        return null;
+      }
+      const name = match[1];
+      const start = match.index + match[0].indexOf(name);
+      return {
+        name,
+        range: {
+          start: { line: lineNumber, character: start },
+          end: { line: lineNumber, character: start + name.length }
+        }
+      };
+    }
+    function parseItemsFile(text) {
+      const definitions = [];
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trimStart().startsWith("//")) {
+          continue;
+        }
+        const def = parseDefinitionLine(lines[i], i);
+        if (def) {
+          definitions.push(def);
+        }
+      }
+      return definitions;
+    }
+    function collectItemsFiles(rootDir) {
+      const files = [];
+      const stack = [rootDir];
+      while (stack.length) {
+        const dir = stack.pop();
+        let entries;
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (!SKIP_DIRS.has(entry.name)) {
+              stack.push(full);
+            }
+          } else if (entry.isFile() && entry.name.endsWith(".items")) {
+            files.push(full);
+          }
+        }
+      }
+      return files.sort();
+    }
+    var ItemIndex = class {
+      /**
+       * @param {{rootDir: string}} options
+       */
+      constructor({ rootDir }) {
+        this.rootDir = rootDir;
+        this.definitions = /* @__PURE__ */ new Map();
+        this.mtimes = /* @__PURE__ */ new Map();
+      }
+      /** Rescan the whole worktree. */
+      scan() {
+        this.definitions.clear();
+        this.mtimes.clear();
+        for (const file of collectItemsFiles(this.rootDir)) {
+          this.scanFile(file);
+        }
+      }
+      /**
+       * (Re)scan a single file if its mtime changed since the last scan.
+       *
+       * @param {string} file absolute path
+       * @returns {boolean} true if the file was (re)scanned
+       */
+      scanFile(file) {
+        let stat;
+        try {
+          stat = fs.statSync(file);
+        } catch {
+          return false;
+        }
+        const previous = this.mtimes.get(file);
+        if (previous !== void 0 && Math.abs(previous - stat.mtimeMs) < 2) {
+          return false;
+        }
+        let text;
+        try {
+          text = fs.readFileSync(file, "utf8");
+        } catch {
+          return false;
+        }
+        for (const [name, def] of this.definitions) {
+          if (def.file === file) {
+            this.definitions.delete(name);
+          }
+        }
+        const uri = pathToFileURL(file).href;
+        for (const def of parseItemsFile(text)) {
+          this.definitions.set(def.name, { ...def, uri, file, mtimeMs: stat.mtimeMs });
+        }
+        this.mtimes.set(file, stat.mtimeMs);
+        return true;
+      }
+      /** Refresh a single file (called from didChangeWatchedFiles). */
+      refresh(file) {
+        if (!file.endsWith(".items")) {
+          return false;
+        }
+        return this.scanFile(file);
+      }
+      /**
+       * Ensure the index is fresh for a file that may have changed on disk,
+       * then look up a definition.
+       *
+       * @param {string} name
+       */
+      get(name) {
+        return this.definitions.get(name) || null;
+      }
+      has(name) {
+        return this.definitions.has(name);
+      }
+      get size() {
+        return this.definitions.size;
+      }
+    };
+    module2.exports = {
+      ItemIndex,
+      collectItemsFiles,
+      parseDefinitionLine,
+      parseItemsFile,
+      NAME_RE,
+      ITEM_TYPES
+    };
+  }
+});
+
+// src/references.js
+var require_references = __commonJS({
+  "src/references.js"(exports2, module2) {
+    "use strict";
+    var fs = require("node:fs");
+    var path = require("node:path");
+    var { pathToFileURL } = require("node:url");
+    var { parseDefinitionLine } = require_itemIndex();
+    var SOURCE_EXTENSIONS = [".items", ".rules", ".script", ".sitemap", ".persist"];
+    var WORD_CHAR = /[A-Za-z0-9_$]/;
+    function maskStringsAndComments(line, inBlockComment) {
+      let out = "";
+      let i = 0;
+      let inBlock = inBlockComment;
+      while (i < line.length) {
+        const ch = line[i];
+        const next = line[i + 1];
+        if (inBlock) {
+          if (ch === "*" && next === "/") {
+            out += "  ";
+            i += 2;
+            inBlock = false;
+          } else {
+            out += " ";
+            i += 1;
+          }
+          continue;
+        }
+        if (ch === "/" && next === "/") {
+          out += " ".repeat(line.length - i);
+          i = line.length;
+          continue;
+        }
+        if (ch === "/" && next === "*") {
+          out += "  ";
+          i += 2;
+          inBlock = true;
+          continue;
+        }
+        if (ch === '"' || ch === "'") {
+          const quote = ch;
+          out += " ";
+          i += 1;
+          while (i < line.length && line[i] !== quote) {
+            if (line[i] === "\\" && i + 1 < line.length) {
+              out += "  ";
+              i += 2;
+            } else {
+              out += " ";
+              i += 1;
+            }
+          }
+          if (i < line.length) {
+            out += " ";
+            i += 1;
+          }
+          continue;
+        }
+        out += ch;
+        i += 1;
+      }
+      return [out, inBlock];
+    }
+    function findReferencesInText(text, name, { extension }) {
+      const references = [];
+      if (!name) {
+        return references;
+      }
+      const lines = text.split(/\r?\n/);
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const occurrence = new RegExp(`(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`, "g");
+      const definitionRanges = /* @__PURE__ */ new Set();
+      if (extension === "items") {
+        for (let i = 0; i < lines.length; i++) {
+          const def = parseDefinitionLine(lines[i], i);
+          if (def && def.name === name) {
+            definitionRanges.add(`${def.range.start.line}:${def.range.start.character}`);
+          }
+        }
+      }
+      let inBlockComment = false;
+      for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+        const raw = lines[lineNo];
+        const [masked, nextInBlock] = maskStringsAndComments(raw, inBlockComment);
+        inBlockComment = nextInBlock;
+        occurrence.lastIndex = 0;
+        let match;
+        while ((match = occurrence.exec(masked)) !== null) {
+          const character = match.index;
+          const key = `${lineNo}:${character}`;
+          if (definitionRanges.has(key)) {
+            continue;
+          }
+          const lineStart = masked.lastIndexOf("\n", character - 1) + 1;
+          const lineUpToEnd = masked.slice(lineStart, character + name.length);
+          const decl = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)$/.exec(lineUpToEnd);
+          if (decl && decl[1] === name) {
+            continue;
+          }
+          if (masked[character + name.length] === "*") {
+            continue;
+          }
+          references.push({
+            range: {
+              start: { line: lineNo, character },
+              end: { line: lineNo, character: character + name.length }
+            }
+          });
+        }
+      }
+      return references;
+    }
+    function findReferencesInFile(file, name) {
+      let text;
+      try {
+        text = fs.readFileSync(file, "utf8");
+      } catch {
+        return [];
+      }
+      const extension = path.extname(file).slice(1);
+      return findReferencesInText(text, name, { extension }).map((ref) => ({
+        uri: pathToFileURL(file).href,
+        range: ref.range
+      }));
+    }
+    function collectSourceFiles(rootDir) {
+      const SKIP = /* @__PURE__ */ new Set(["node_modules", ".git", ".scratch", "target"]);
+      const files = [];
+      const stack = [rootDir];
+      while (stack.length) {
+        const dir = stack.pop();
+        let entries;
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (!SKIP.has(entry.name)) {
+              stack.push(full);
+            }
+          } else if (entry.isFile() && SOURCE_EXTENSIONS.includes(path.extname(entry.name))) {
+            files.push(full);
+          }
+        }
+      }
+      return files.sort();
+    }
+    function findReferencesInWorktree(rootDir, name, { extraFiles = [] } = {}) {
+      const locations = [];
+      const seen = /* @__PURE__ */ new Set();
+      for (const file of [...collectSourceFiles(rootDir), ...extraFiles]) {
+        if (seen.has(file)) {
+          continue;
+        }
+        seen.add(file);
+        locations.push(...findReferencesInFile(file, name));
+      }
+      return locations;
+    }
+    module2.exports = {
+      SOURCE_EXTENSIONS,
+      WORD_CHAR,
+      collectSourceFiles,
+      findReferencesInFile,
+      findReferencesInText,
+      findReferencesInWorktree,
+      maskStringsAndComments
+    };
+  }
+});
+
 // src/Server.js
 var require_Server = __commonJS({
   "src/Server.js"(exports2, module2) {
@@ -7942,13 +8299,17 @@ var require_Server = __commonJS({
       TextDocuments,
       createConnection,
       ProposedFeatures,
-      DidChangeConfigurationNotification
+      DidChangeConfigurationNotification,
+      DidChangeWatchedFilesNotification
     } = require_main4();
     var { TextDocument: TextDocument2 } = (init_main(), __toCommonJS(main_exports));
+    var { fileURLToPath } = require("node:url");
     var ItemStore = require_ItemStore();
     var completion = require_completion();
     var hover = require_hover();
     var { extensionOf } = require_files2();
+    var { ItemIndex, NAME_RE } = require_itemIndex();
+    var { findReferencesInWorktree } = require_references();
     var DEFAULT_SETTINGS = {
       host: "localhost",
       port: 8080,
@@ -7977,9 +8338,55 @@ var require_Server = __commonJS({
         this.connection.onDidChangeConfiguration(this.configurationChanged.bind(this));
         this.connection.onCompletion(this.getCompletion.bind(this));
         this.connection.onHover(this.getHover.bind(this));
+        this.connection.onDefinition(this.getDefinition.bind(this));
+        this.connection.onReferences(this.getReferences.bind(this));
+        this.connection.onPrepareRename(this.prepareRename.bind(this));
+        this.connection.onRenameRequest(this.rename.bind(this));
         this.documents = new TextDocuments(TextDocument2);
         this.documents.listen(this.connection);
+        this.index = null;
+        this.connection.onDidChangeWatchedFiles((params) => {
+          if (!this.index) {
+            return;
+          }
+          for (const change of params.changes) {
+            if (change.uri.endsWith(".items")) {
+              this.index.refresh(fileURLToPath(change.uri));
+            }
+          }
+        });
         this.connection.listen();
+      }
+      /** Absolute worktree root from the initialize params, if any. */
+      get rootDir() {
+        const folders = this.initializeParams?.workspaceFolders;
+        if (folders && folders.length && folders[0].uri) {
+          try {
+            return fileURLToPath(folders[0].uri);
+          } catch {
+          }
+        }
+        const rootUri = this.initializeParams?.rootUri;
+        if (rootUri) {
+          try {
+            return fileURLToPath(rootUri);
+          } catch {
+          }
+        }
+        return null;
+      }
+      /** Lazily create and scan the definition index. */
+      getIndex() {
+        if (!this.index) {
+          const rootDir = this.rootDir;
+          if (!rootDir) {
+            return null;
+          }
+          this.index = new ItemIndex({ rootDir });
+          this.index.scan();
+          this.log(`indexed ${this.index.size} item definitions under ${rootDir}`);
+        }
+        return this.index;
       }
       /**
        * Status messages go to the client as LSP log messages, which Zed shows in
@@ -7989,6 +8396,7 @@ var require_Server = __commonJS({
         this.connection?.console?.info(`[openhab-lsp] ${message}`);
       }
       initialize(params) {
+        this.initializeParams = params;
         this.settings = resolveSettings(params.initializationOptions);
         return {
           capabilities: {
@@ -7997,7 +8405,10 @@ var require_Server = __commonJS({
               resolveProvider: false,
               triggerCharacters: ["=", "(", ",", "[", "<"]
             },
-            hoverProvider: true
+            hoverProvider: true,
+            definitionProvider: true,
+            referencesProvider: true,
+            renameProvider: { prepareProvider: true }
           },
           serverInfo: { name: "openHAB Language Server", version: "0.1.0" }
         };
@@ -8084,6 +8495,142 @@ var require_Server = __commonJS({
           return null;
         }
         return hover.hoverFor(item);
+      }
+      /**
+       * Go-to-definition: the `.items` line that defines the item under the
+       * cursor. If the cursor is already on a definition, returns it (self).
+       * Items that exist only on the openHAB instance (no local definition)
+       * return null — there is no file to jump to.
+       */
+      getDefinition(params) {
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+          return null;
+        }
+        const word = hover.wordAt(document.getText(), params.position);
+        if (!word) {
+          return null;
+        }
+        const index = this.getIndex();
+        const def = index && index.get(word);
+        if (!def) {
+          return null;
+        }
+        return { uri: def.uri, range: def.range };
+      }
+      /**
+       * References: every usage of the item under the cursor across the
+       * worktree's openHAB files. `includeDeclaration` adds the definition.
+       */
+      getReferences(params) {
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+          return [];
+        }
+        const word = hover.wordAt(document.getText(), params.position);
+        if (!word) {
+          return [];
+        }
+        const rootDir = this.rootDir;
+        if (!rootDir) {
+          return [];
+        }
+        const extraFiles = [...this.documents.all()].map((d) => {
+          try {
+            return fileURLToPath(d.uri);
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+        const locations = findReferencesInWorktree(rootDir, word, { extraFiles });
+        if (params.context?.includeDeclaration) {
+          const index = this.getIndex();
+          const def = index && index.get(word);
+          if (def) {
+            locations.push({ uri: def.uri, range: def.range });
+          }
+        }
+        return locations;
+      }
+      /**
+       * Prepare-rename: only allow renaming when the word under the cursor is a
+       * known item (locally defined or present on the openHAB instance).
+       * Returns the word's range, or null to reject the rename.
+       */
+      prepareRename(params) {
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+          return null;
+        }
+        const word = hover.wordAt(document.getText(), params.position);
+        if (!word || !NAME_RE.test(word)) {
+          return null;
+        }
+        const index = this.getIndex();
+        const known = index && index.has(word) || this.store.items.has(word);
+        if (!known) {
+          return null;
+        }
+        const line = document.getText().split(/\r?\n/)[params.position.line] || "";
+        const col = Math.min(params.position.character, line.length);
+        let start = col;
+        while (start > 0 && hover.WORD_CHAR_TEST(line[start - 1])) {
+          start -= 1;
+        }
+        let end = col;
+        while (end < line.length && hover.WORD_CHAR_TEST(line[end])) {
+          end += 1;
+        }
+        return {
+          range: {
+            start: { line: params.position.line, character: start },
+            end: { line: params.position.line, character: end }
+          },
+          placeholder: word
+        };
+      }
+      /**
+       * Rename: rewrite every reference (and the definition) of the item to the
+       * new name, as a WorkspaceEdit grouped by file. Workspace-text only — the
+       * running openHAB instance is not renamed (that would need a REST call
+       * and is a deliberate non-goal for now).
+       */
+      rename(params) {
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+          return null;
+        }
+        const word = hover.wordAt(document.getText(), params.position);
+        const newName = params.newName;
+        if (!word || !NAME_RE.test(newName)) {
+          return null;
+        }
+        const rootDir = this.rootDir;
+        if (!rootDir) {
+          return null;
+        }
+        const extraFiles = [...this.documents.all()].map((d) => {
+          try {
+            return fileURLToPath(d.uri);
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+        const locations = findReferencesInWorktree(rootDir, word, { extraFiles });
+        const index = this.getIndex();
+        const def = index && index.get(word);
+        if (def) {
+          locations.push({ uri: def.uri, range: def.range });
+        }
+        const changes = {};
+        for (const loc of locations) {
+          ;
+          (changes[loc.uri] = changes[loc.uri] || []).push({
+            range: loc.range,
+            newText: newName
+          });
+        }
+        return { changes };
       }
       exit() {
         this.store.stop();

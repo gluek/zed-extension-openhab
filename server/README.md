@@ -72,6 +72,15 @@ These are deliberate; see the comments in `src/` for the reasoning.
   reports anything.
 - **No `itemCasing` setting.** Upstream only uses it for the "Create Items from
   Channels" command, which has no Zed equivalent.
+- **Navigation (go-to-definition / references / rename).** The server scans the
+  worktree's `.items` files into a definition index (`src/itemIndex.js`,
+  refreshed on `workspace/didChangeWatchedFiles`) and finds references
+  textually across `.items/.rules/.script/.sitemap/.persist`
+  (`src/references.js`), excluding strings, comments, the definition itself,
+  `val`/`var` locals, and persist wildcards. Zed maps LSP `definition`,
+  `references`, and `rename` onto its native commands, so `editor: go to
+  definition` etc. work out of the box. Rename is workspace-text only — the
+  running openHAB instance is not renamed.
 
 ## Development
 

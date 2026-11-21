@@ -8,6 +8,8 @@
 const test = require('node:test')
 const assert = require('node:assert')
 const http = require('node:http')
+const fs = require('node:fs')
+const os = require('node:os')
 const { spawn } = require('node:child_process')
 const path = require('node:path')
 
@@ -157,5 +159,115 @@ test('returns no item completions inside a string literal', async () => {
     } finally {
         client.child.kill()
         server.close()
+    }
+})
+
+/** Temp worktree with an .items file and a .rules file referencing an item. */
+function makeWorktree() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-lsp-'))
+    fs.writeFileSync(
+        path.join(dir, 'lamps.items'),
+        'Switch Kitchen_Light "Kitchen Light" <light> (gAll)\nGroup gAll "All"\n',
+    )
+    fs.writeFileSync(
+        path.join(dir, 'demo.rules'),
+        'rule "x"\nwhen\n    Item Kitchen_Light changed\nthen\n    Kitchen_Light.sendCommand(ON)\nend\n',
+    )
+    return dir
+}
+
+test('definition, references, prepareRename, and rename over stdio', async () => {
+    const dir = makeWorktree()
+    const { server, port } = await startFakeOpenHAB([
+        { name: 'Kitchen_Light', type: 'Switch', state: 'ON', tags: [], groupNames: [] },
+    ])
+    const client = startClient(port)
+    const itemsUri = 'file://' + path.join(dir, 'lamps.items')
+    const rulesUri = 'file://' + path.join(dir, 'demo.rules')
+
+    try {
+        await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: 'file://' + dir,
+            workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: {
+                textDocument: {
+                    uri: rulesUri,
+                    languageId: 'openhab',
+                    version: 1,
+                    text: fs.readFileSync(path.join(dir, 'demo.rules'), 'utf8'),
+                },
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        // 1. Go-to-definition from the trigger reference (line 2, "Kitchen_Light").
+        const def = await client.request(2, 'textDocument/definition', {
+            textDocument: { uri: rulesUri },
+            position: { line: 2, character: 10 },
+        })
+        assert.strictEqual(def.result.uri, itemsUri)
+        assert.deepStrictEqual(def.result.range.start, { line: 0, character: 7 })
+
+        // 2. References without declaration: trigger + body = 2 locations.
+        const refs = await client.request(3, 'textDocument/references', {
+            textDocument: { uri: rulesUri },
+            position: { line: 4, character: 5 },
+            context: { includeDeclaration: false },
+        })
+        assert.strictEqual(refs.result.length, 2)
+        assert.ok(refs.result.every((l) => l.uri === rulesUri))
+
+        // 3. References with declaration: +1 definition in lamps.items.
+        const refsDecl = await client.request(4, 'textDocument/references', {
+            textDocument: { uri: rulesUri },
+            position: { line: 4, character: 5 },
+            context: { includeDeclaration: true },
+        })
+        assert.strictEqual(refsDecl.result.length, 3)
+        assert.ok(refsDecl.result.some((l) => l.uri === itemsUri))
+
+        // 4. prepareRename returns the word range.
+        const prep = await client.request(5, 'textDocument/prepareRename', {
+            textDocument: { uri: rulesUri },
+            position: { line: 4, character: 5 },
+        })
+        assert.deepStrictEqual(prep.result.range, {
+            start: { line: 4, character: 4 },
+            end: { line: 4, character: 4 + 'Kitchen_Light'.length },
+        })
+
+        // 5. rename produces a WorkspaceEdit covering all 3 locations.
+        const ren = await client.request(6, 'textDocument/rename', {
+            textDocument: { uri: rulesUri },
+            position: { line: 4, character: 5 },
+            newName: 'Kitchen_Lamp',
+        })
+        const uris = Object.keys(ren.result.changes).sort()
+        assert.deepStrictEqual(uris, [itemsUri, rulesUri].sort())
+        const edits = ren.result.changes[rulesUri]
+        assert.strictEqual(edits.length, 2)
+        assert.ok(edits.every((e) => e.newText === 'Kitchen_Lamp'))
+        assert.deepStrictEqual(ren.result.changes[itemsUri][0].range.start, { line: 0, character: 7 })
+
+        // 6. prepareRename rejects an unknown word.
+        const prepBad = await client.request(7, 'textDocument/prepareRename', {
+            textDocument: { uri: rulesUri },
+            position: { line: 0, character: 2 }, // inside `rule`
+        })
+        assert.strictEqual(prepBad.result, null)
+        assert.ok(prepBad.error || prepBad.result === null)
+    } finally {
+        client.child.kill()
+        server.close()
+        fs.rmSync(dir, { recursive: true, force: true })
     }
 })

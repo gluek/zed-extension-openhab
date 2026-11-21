@@ -38,6 +38,12 @@ function startFakeOpenHAB(items) {
             res.end()
             return
         }
+        if (req.url.startsWith('/rest/rules')) {
+            // Rule list: the DSL rule's UID differs from its display name.
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify([{ uid: 'rule-uid-1', name: 'Evening', status: { status: 'IDLE' } }]))
+            return
+        }
         if (req.url.startsWith('/rest/items')) {
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify(items))
@@ -595,34 +601,40 @@ test('code actions: sendCommand, runRule, createItemFromChannel over stdio', asy
         await new Promise((resolve) => setTimeout(resolve, 300))
         assert.deepStrictEqual(posted, [{ url: '/rest/items/Kitchen_Light', body: 'OFF' }])
 
-        // 4. Execute runRule -> POST /rest/rules/Evening/run.
+        // 4. Execute runRule -> the server resolves name -> UID via
+        // GET /rest/rules, then POSTs /rest/rules/rule-uid-1/run.
         await client.request(5, 'workspace/executeCommand', {
             command: 'openhab.runRule',
             arguments: ['Evening'],
         })
         await new Promise((resolve) => setTimeout(resolve, 300))
-        assert.ok(posted.some((p) => p.url === '/rest/rules/Evening/run'))
+        assert.ok(posted.some((p) => p.url === '/rest/rules/rule-uid-1/run'), `got ${JSON.stringify(posted)}`)
 
-        // 5. Code actions on the channel="…" line in .items: createItemFromChannel.
+        // 5. Code actions on the channel="…" line in .items: the action
+        // carries the WorkspaceEdit directly (Zed applies action edits and
+        // ignores executeCommand results).
         const itemActions = await client.request(6, 'textDocument/codeAction', {
             textDocument: { uri: itemsUri },
             range: { start: { line: 0, character: 60 }, end: { line: 0, character: 60 } },
             context: { diagnostics: [] },
         })
-        const create = itemActions.result.find((a) => a.command?.command === 'openhab.createItemFromChannel')
-        assert.ok(create, `expected createItemFromChannel, got ${JSON.stringify(itemActions.result)}`)
-        assert.deepStrictEqual(create.command.arguments, ['Hue_0210_1_Bulb1_Color', 'Color', 'hue:0210:1:bulb1:color'])
-
-        // 6. Execute it -> returns a WorkspaceEdit appending the item to lamps.items.
-        const exec = await client.request(7, 'workspace/executeCommand', {
-            command: 'openhab.createItemFromChannel',
-            arguments: ['Hue_0210_1_Bulb1_Color', 'Color', 'hue:0210:1:bulb1:color'],
-        })
-        const edit = exec.result.edit
-        assert.ok(edit.changes[itemsUri], `expected edit for ${itemsUri}, got ${JSON.stringify(exec.result)}`)
+        const create = itemActions.result.find((a) => a.title.includes('Create item'))
+        assert.ok(create, `expected create-item action, got ${JSON.stringify(itemActions.result)}`)
+        assert.strictEqual(create.command, undefined)
+        const edit = create.edit
+        assert.ok(edit.changes[itemsUri], `expected edit for ${itemsUri}, got ${JSON.stringify(create)}`)
         const change = edit.changes[itemsUri][0]
         assert.ok(change.newText.includes('Color Hue_0210_1_Bulb1_Color'))
         assert.ok(change.newText.includes('channel="hue:0210:1:bulb1:color"'))
+
+        // 6. Code actions on the .items definition name: sendCommand.
+        const defActions = await client.request(7, 'textDocument/codeAction', {
+            textDocument: { uri: itemsUri },
+            range: { start: { line: 0, character: 10 }, end: { line: 0, character: 10 } },
+            context: { diagnostics: [] },
+        })
+        const defSends = defActions.result.filter((a) => a.command?.command === 'openhab.sendCommand')
+        assert.deepStrictEqual(defSends.map((a) => a.command.arguments[1]).sort(), ['OFF', 'ON'])
     } finally {
         client.child.kill()
         server.close()

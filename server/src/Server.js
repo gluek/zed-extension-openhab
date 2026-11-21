@@ -36,7 +36,7 @@ const ItemStore = require('./ItemStore')
 const completion = require('./completion')
 const hover = require('./hover')
 const { extensionOf, OPENHAB_EXTENSIONS } = require('./files')
-const { codeActionsAt, createItemEdit } = require('./codeActions')
+const { codeActionsAt } = require('./codeActions')
 const { findUnknownItemRefs } = require('./diagnostics')
 const { findItemPositions } = require('./itemPositions')
 const { ItemIndex, NAME_RE } = require('./itemIndex')
@@ -218,6 +218,8 @@ class Server {
                     codeActionKinds: ['quickfix'],
                 },
                 executeCommandProvider: {
+                    // createItemFromChannel is listed so Zed keeps command-style
+                    // entries resolvable, but its actions carry the edit directly.
                     commands: ['openhab.sendCommand', 'openhab.runRule', 'openhab.createItemFromChannel'],
                 },
             },
@@ -583,13 +585,10 @@ class Server {
             return []
         }
         const extension = extensionOf(params.textDocument.uri)
-        // Remember the document so executeCommand('openhab.createItemFromChannel')
-        // knows where to insert the new item.
-        this.lastCodeActionUri = params.textDocument.uri
         return codeActionsAt(document.getText(), extension, params, {
             itemFor: (name) => this.store.items.get(name),
+            isKnownItem: (name) => this.isKnownItem(name),
             channelsOf: (thingUID) => this.things.channelsOf(thingUID),
-            rootDir: this.rootDir,
         })
     }
 
@@ -630,41 +629,37 @@ class Server {
                     }
                     return null
                 }
-                // openHAB runs rules by UID; for file-based rules the UID is
-                // the rule name in `rule "…"`.
-                const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(name)}/run`, {
+                // POST /rest/rules/{uid}/run takes the rule UID, not the
+                // `rule "…"` display name (DSL rule UIDs are auto-generated),
+                // so resolve name -> UID via GET /rest/rules first.
+                let uid = name
+                try {
+                    const list = await fetch(`${this.store.baseUrl}/rules`, { headers: this.store.authHeaders })
+                    if (list.ok) {
+                        const rules = await list.json()
+                        const found = Array.isArray(rules) && rules.find((r) => r.name === name || r.uid === name)
+                        if (found) {
+                            uid = found.uid
+                        }
+                    }
+                } catch {
+                    // fall through and try the name as UID
+                }
+                const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(uid)}/run`, {
                     method: 'POST',
                     headers: this.store.authHeaders,
                 })
                 if (!response.ok) {
-                    this.log(`run rule ${name} failed: HTTP ${response.status}`)
+                    this.log(`run rule ${name} (uid ${uid}) failed: HTTP ${response.status}`)
                     return null
                 }
                 this.log(`ran rule ${name}`)
                 return null
             }
-            case 'openhab.createItemFromChannel': {
-                const [itemName, itemType, channelUID] = params.arguments || []
-                if (!itemName || !itemType || !channelUID || !NAME_RE.test(itemName)) {
-                    return null
-                }
-                // The edit goes into the .items document the action was invoked
-                // on; find it from the arguments' originating document via the
-                // last code-action request (stored in getCodeActions).
-                const uri = this.lastCodeActionUri
-                const document = uri && this.documents.get(uri)
-                if (!document) {
-                    return null
-                }
-                return {
-                    edit: createItemEdit(uri, document.getText(), {
-                        name: itemName,
-                        itemType,
-                        channelUID,
-                    }),
-                }
-            }
             default:
+                // openhab.createItemFromChannel needs no handler: its CodeAction
+                // carries the WorkspaceEdit directly (Zed applies that, and
+                // ignores executeCommand results when applying a picked action).
                 return null
         }
     }

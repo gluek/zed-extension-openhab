@@ -12,10 +12,11 @@
  *    /rest/rules/{id}/run. The rule UID is the `ruleUID` metadata or, for
  *    files-based rules, the `rule "name"` id; openHAB 4 runs rules by UID.
  *  - `openhab.createItemFromChannel` — on a `channel="thing:…:channel"` line
- *    in `.items`: insert a new item definition for that channel (the upstream
- *    "Create Items from Channels" command, ported to a code action): the
- *    channel's item type, a name derived from the channel UID (or the thing's
- *    label), linked via `channel="…"`.
+ *    in `.items`: a new item definition for that channel (the upstream
+ *    "Create Items from Channels" command, ported to a code action). The
+ *    action carries the WorkspaceEdit directly on the CodeAction — Zed's
+ *    apply_code_action ignores executeCommand *results*, it only applies
+ *    edits on the action or sent via workspace/applyEdit.
  *
  * Only the positions where the action makes sense are offered, so the action
  * list stays short. Zed executes `Command`-style actions through
@@ -28,7 +29,7 @@ const { pathToFileURL } = require('node:url')
 const path = require('node:path')
 
 const { WORD_CHAR } = require('./hover')
-const { NAME_RE } = require('./itemIndex')
+const { NAME_RE, parseDefinitionLine } = require('./itemIndex')
 
 /** Commands offered per item type for `sendCommand` (openHAB core item commands). */
 const COMMANDS_BY_TYPE = {
@@ -91,14 +92,36 @@ function wordAt(text, position) {
  * @param {{range: object, textDocument: {uri: string}, context?: {diagnostics?: object[]}}} params LSP CodeActionParams
  * @param {object} ctx
  * @param {(name: string) => object|undefined} ctx.itemFor returns the live Item (or undefined)
+ * @param {(name: string) => boolean} ctx.isKnownItem item in worktree index ∪ live cache
  * @param {(thingUID: string) => Array<{uid: string, itemType?: string, label?: string}>} ctx.channelsOf
- * @param {string} ctx.rootDir worktree root (for insert position of new items), or null
  * @returns {Array<object>} LSP CodeAction objects (with `edit` or `command`)
  */
 function codeActionsAt(text, extension, params, ctx) {
     const actions = []
-    const line = text.split(/\r?\n/)[params.range.start.line] || ''
+    const lineNo = params.range.start.line
+    const line = text.split(/\r?\n/)[lineNo] || ''
     const col = params.range.start.character
+
+    /** sendCommand actions for `word` (per-type when the live item is known). */
+    const pushSendCommand = (word) => {
+        if (!word || !NAME_RE.test(word) || !ctx.isKnownItem(word)) {
+            return
+        }
+        const item = ctx.itemFor(word)
+        const type = item ? (item.type || '').replace(/:.*$/, '') : '' // strip unit: Number:Temperature
+        const commands = COMMANDS_BY_TYPE[type] || DEFAULT_COMMANDS
+        for (const cmd of commands) {
+            actions.push({
+                title: `Send ${cmd} to ${word}`,
+                kind: 'quickfix',
+                command: {
+                    title: `Send ${cmd} to ${word}`,
+                    command: 'openhab.sendCommand',
+                    arguments: [word, cmd],
+                },
+            })
+        }
+    }
 
     if (extension === 'rules' || extension === 'script') {
         // `rule "…"` header -> run the rule on the instance.
@@ -114,31 +137,23 @@ function codeActionsAt(text, extension, params, ctx) {
                 },
             })
         }
-        // Item name under the cursor -> send a command.
-        const word = wordAt(text, params.range.start)
-        if (word && NAME_RE.test(word)) {
-            const item = ctx.itemFor(word)
-            if (item) {
-                const type = (item.type || '').replace(/:.*$/, '') // strip unit: Number:Temperature
-                const commands = COMMANDS_BY_TYPE[type] ?? (type === 'Group' ? DEFAULT_COMMANDS : DEFAULT_COMMANDS)
-                for (const cmd of commands) {
-                    actions.push({
-                        title: `Send ${cmd} to ${word}`,
-                        kind: 'quickfix',
-                        command: {
-                            title: `Send ${cmd} to ${word}`,
-                            command: 'openhab.sendCommand',
-                            arguments: [word, cmd],
-                        },
-                    })
-                }
-            }
-        }
+        pushSendCommand(wordAt(text, params.range.start))
         return actions
     }
 
     if (extension === 'items') {
-        // `channel="…"` on this line -> create an item from the channel.
+        // Item definition name under the cursor -> sendCommand (the definition
+        // line is where you stand when you want to toggle the item).
+        const def = parseDefinitionLine(line, lineNo)
+        if (def) {
+            const word = wordAt(text, params.range.start)
+            if (word === def.name) {
+                pushSendCommand(word)
+            }
+        }
+        // `channel="…"` on this line -> create an item from the channel. The
+        // edit rides on the CodeAction itself (Zed ignores executeCommand
+        // results when applying a picked action).
         CHANNEL_ASSIGN_RE.lastIndex = 0
         let m
         while ((m = CHANNEL_ASSIGN_RE.exec(line)) !== null) {
@@ -155,32 +170,14 @@ function codeActionsAt(text, extension, params, ctx) {
             actions.push({
                 title: `Create item ${name} (${itemType}) from channel ${uid}`,
                 kind: 'quickfix',
-                command: {
-                    title: `Create item from channel ${uid}`,
-                    command: 'openhab.createItemFromChannel',
-                    arguments: [name, itemType, uid],
-                },
+                edit: createItemEdit(params.textDocument.uri, text, { name, itemType, channelUID: uid }),
             })
         }
         return actions
     }
 
     if (extension === 'sitemap') {
-        const word = wordAt(text, params.range.start)
-        if (word && NAME_RE.test(word) && ctx.itemFor(word)) {
-            const commands = DEFAULT_COMMANDS
-            for (const cmd of commands) {
-                actions.push({
-                    title: `Send ${cmd} to ${word}`,
-                    kind: 'quickfix',
-                    command: {
-                        title: `Send ${cmd} to ${word}`,
-                        command: 'openhab.sendCommand',
-                        arguments: [word, cmd],
-                    },
-                })
-            }
-        }
+        pushSendCommand(wordAt(text, params.range.start))
     }
 
     return actions

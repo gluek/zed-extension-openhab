@@ -8,11 +8,11 @@ const { codeActionsAt, createItemEdit, itemNameFromChannelUid } = require('../sr
 const ITEM = { name: 'Kitchen_Light', type: 'Switch', state: 'ON' }
 const ctx = {
     itemFor: (name) => (name === 'Kitchen_Light' ? ITEM : undefined),
+    isKnownItem: (name) => name === 'Kitchen_Light' || name === 'gAll',
     channelsOf: (thingUID) =>
         thingUID === 'hue:0210:1:bulb1'
             ? [{ uid: 'hue:0210:1:bulb1:color', itemType: 'Color', label: 'Color' }]
             : [],
-    rootDir: '/tmp/wt',
 }
 
 function params(line, character, uri = 'file:///tmp/wt/demo.rules') {
@@ -47,13 +47,27 @@ test('no actions for an unknown word or a non-item position in rules', () => {
     assert.deepStrictEqual(codeActionsAt(text, 'rules', params(2, 5), ctx), [])
 })
 
-test('createItemFromChannel action on a channel="…" line in .items', () => {
+test('createItemFromChannel action on a channel="…" line in .items carries the edit on the action', () => {
     const text = 'Switch Old "Old" { channel="hue:0210:1:bulb1:color" }\n'
     const actions = codeActionsAt(text, 'items', params(0, 30, 'file:///tmp/wt/lamps.items'), ctx)
     assert.strictEqual(actions.length, 1)
-    assert.strictEqual(actions[0].command.command, 'openhab.createItemFromChannel')
-    assert.deepStrictEqual(actions[0].command.arguments, ['Hue_0210_1_Bulb1_Color', 'Color', 'hue:0210:1:bulb1:color'])
+    // Zed applies the edit from the CodeAction itself (it ignores
+    // executeCommand results when a picked action is applied).
+    assert.strictEqual(actions[0].command, undefined)
+    const edit = actions[0].edit
+    assert.ok(edit.changes['file:///tmp/wt/lamps.items'])
+    const change = edit.changes['file:///tmp/wt/lamps.items'][0]
+    assert.ok(change.newText.includes('Color Hue_0210_1_Bulb1_Color'))
+    assert.ok(change.newText.includes('channel="hue:0210:1:bulb1:color"'))
     assert.ok(actions[0].title.includes('Color'))
+})
+
+test('sendCommand is offered on the .items definition name too', () => {
+    const text = 'Switch Kitchen_Light "K" (gAll)\n'
+    const actions = codeActionsAt(text, 'items', params(0, 10, 'file:///tmp/wt/lamps.items'), ctx)
+    assert.deepStrictEqual(actions.map((a) => a.title), ['Send ON to Kitchen_Light', 'Send OFF to Kitchen_Light'])
+    // Not on the group-list reference (that is a group, not this item).
+    assert.deepStrictEqual(codeActionsAt(text, 'items', params(0, 28, 'file:///tmp/wt/lamps.items'), ctx), [])
 })
 
 test('no channel action when the thing is unknown (openHAB offline)', () => {

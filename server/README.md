@@ -72,6 +72,10 @@ These are deliberate; see the comments in `src/` for the reasoning.
   reports anything.
 - **No `itemCasing` setting.** Upstream only uses it for the "Create Items from
   Channels" command, which has no Zed equivalent.
+- **Thing-type completion in `.things`.** The server fetches
+  `GET /rest/thing-types` at startup (and on connection-setting changes) and
+  offers binding IDs after `Thing `/`Bridge ` with no `:` yet, or the binding's
+  thing-type UIDs after `hue:` etc. (`src/thingTypes.js`).
 - **Navigation (go-to-definition / references / rename).** The server scans the
   worktree's `.items` files into a definition index (`src/itemIndex.js`,
   refreshed on `workspace/didChangeWatchedFiles`) and finds references

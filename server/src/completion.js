@@ -100,6 +100,54 @@ function offersItems(extension, context) {
 }
 
 /**
+ * True when the cursor is in the UID position of a `Thing …` / `Bridge …`
+ * header in a `.things` file, i.e. after the keyword and before any label
+ * string or config bracket.
+ *
+ * @param {string} extension
+ * @param {{before: string}} context from `contextAt`
+ */
+function isThingUidPosition(extension, context) {
+    if (extension !== 'things' || inStringOrComment(context)) {
+        return false
+    }
+    return /^\s*(?:Thing|Bridge)\s+[A-Za-z0-9_:\-]*$/.test(context.before)
+}
+
+/** LSP CompletionItemKind.Module */
+const KIND_MODULE = 9
+
+/**
+ * Completions for the thing-UID position: binding IDs when no `:` has been
+ * typed yet, otherwise the thing-type UIDs of that binding.
+ *
+ * @param {string} partial the UID prefix typed so far (`''`, `h`, `hue:`, `hue:02`)
+ * @param {string[]} bindingIds all binding IDs from the thing-type store
+ * @param {(binding: string, opts?: object) => string[]} uidsForBinding
+ */
+function thingUidCompletions(partial, bindingIds, uidsForBinding) {
+    const items = []
+    if (!partial.includes(':')) {
+        // No binding prefix yet: offer binding IDs; also offer full UIDs of
+        // bindings whose ID starts with the partial (so `hu` completes to
+        // `hue` and `hue:…` types).
+        for (const binding of bindingIds) {
+            if (binding.startsWith(partial)) {
+                items.push({ label: binding, kind: KIND_MODULE, detail: 'binding' })
+            }
+        }
+    } else {
+        const binding = partial.split(':')[0]
+        for (const uid of uidsForBinding(binding)) {
+            if (uid.startsWith(partial) || uid === binding) {
+                items.push({ label: uid, kind: KIND_MODULE, detail: 'thing type' })
+            }
+        }
+    }
+    return items
+}
+
+/**
  * Build completion items for the given items.
  *
  * @param {object[]} items Item instances from the store
@@ -148,7 +196,9 @@ module.exports = {
     documentationFor,
     inStringOrComment,
     isItemTypePosition,
+    isThingUidPosition,
     itemCompletions,
     offersItems,
+    thingUidCompletions,
     typeCompletions,
 }

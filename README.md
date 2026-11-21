@@ -20,6 +20,8 @@ It provides:
   openHAB files in the project (`.items` definitions ↔ usages in `.rules`,
   `.script`, `.sitemap`, `.persist`). Works through Zed's native
   `editor: go to definition` / `editor: find all references` / rename commands.
+- **Thing-type completion** in `.things` files: binding IDs and thing-type
+  UIDs from your openHAB instance's `/rest/thing-types`.
 
 ## Supported files
 

@@ -280,3 +280,4 @@ class ItemStore {
 }
 
 module.exports = ItemStore
+module.exports.normalizeBaseUrl = normalizeBaseUrl

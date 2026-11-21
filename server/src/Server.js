@@ -35,6 +35,7 @@ const hover = require('./hover')
 const { extensionOf } = require('./files')
 const { ItemIndex, NAME_RE } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
+const { ThingTypeStore } = require('./thingTypes')
 
 const DEFAULT_SETTINGS = {
     host: 'localhost',
@@ -72,6 +73,7 @@ class Server {
 
         this.settings = { ...DEFAULT_SETTINGS }
         this.store = new ItemStore({ log: (message) => this.log(message) })
+        this.thingTypes = new ThingTypeStore({ log: (message) => this.log(message) })
 
         this.connection.onInitialize(this.initialize.bind(this))
         this.connection.onInitialized(this.initialized.bind(this))
@@ -183,6 +185,7 @@ class Server {
             section: 'openhab',
         })
         await this.store.restart(this.settings)
+        await this.thingTypes.load(this.settings)
     }
 
     /**
@@ -220,6 +223,7 @@ class Server {
         )
         if (reconnected) {
             await this.store.restart(this.settings)
+            await this.thingTypes.load(this.settings)
         }
     }
 
@@ -234,6 +238,16 @@ class Server {
 
         if (completion.isItemTypePosition(extension, context)) {
             return { isIncomplete: false, items: completion.typeCompletions() }
+        }
+        // `.things`: thing-type UID completion after `Thing `/`Bridge `.
+        if (completion.isThingUidPosition(extension, context)) {
+            const partial = /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before)[1]
+            return {
+                isIncomplete: false,
+                items: completion.thingUidCompletions(partial, this.thingTypes.bindingIds, (b) =>
+                    this.thingTypes.uidsForBinding(b),
+                ),
+            }
         }
         if (!completion.offersItems(extension, context)) {
             return { isIncomplete: false, items: [] }

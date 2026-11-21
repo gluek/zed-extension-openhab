@@ -23,9 +23,19 @@ function startFakeOpenHAB(items) {
             res.end(JSON.stringify(items))
             return
         }
+        if (req.url.startsWith('/rest/thing-types')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify([
+                { UID: 'hue:0210', label: 'Hue Bulb' },
+                { UID: 'hue:bridge:office', label: 'Hue Bridge', bridge: true },
+                { UID: 'mqtt:broker', label: 'MQTT Broker', bridge: true },
+            ]))
+            return
+        }
         if (req.url.startsWith('/rest/events')) {
             res.writeHead(200, { 'Content-Type': 'text/event-stream' })
             // Keep the connection open like openHAB does.
+            req.on('close', () => res.end())
             return
         }
         res.writeHead(404)
@@ -269,5 +279,75 @@ test('definition, references, prepareRename, and rename over stdio', async () =>
         client.child.kill()
         server.close()
         fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('offers thing-type completions in a .things file end to end', async () => {
+    const { server, port } = await startFakeOpenHAB([])
+    const client = startClient(port)
+    try {
+        await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: null,
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        const uri = 'file:///tmp/demo.things'
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: {
+                textDocument: { uri, languageId: 'openhab', version: 1, text: 'Thing \n' },
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        // After `Thing ` with nothing typed: binding IDs.
+        const bindings = await client.request(2, 'textDocument/completion', {
+            textDocument: { uri },
+            position: { line: 0, character: 6 },
+        })
+        assert.deepStrictEqual(
+            bindings.result.items.map((i) => i.label).sort(),
+            ['hue', 'mqtt'],
+        )
+
+        // After `Thing hue:`: thing-type UIDs of the hue binding.
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: {
+                textDocument: { uri, version: 2 },
+                contentChanges: [{ text: 'Thing hue:\n' }],
+            },
+        })
+        const uids = await client.request(3, 'textDocument/completion', {
+            textDocument: { uri },
+            position: { line: 0, character: 10 },
+        })
+        assert.deepStrictEqual(
+            uids.result.items.map((i) => i.label).sort(),
+            ['hue:0210', 'hue:bridge:office'],
+        )
+
+        // Not in a UID position (inside a config value): no thing completions.
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: {
+                textDocument: { uri, version: 3 },
+                contentChanges: [{ text: 'Thing hue:0210 "X" [ id="1" ]\n' }],
+            },
+        })
+        const none = await client.request(4, 'textDocument/completion', {
+            textDocument: { uri },
+            position: { line: 0, character: 30 },
+        })
+        assert.deepStrictEqual(none.result.items, [])
+    } finally {
+        client.child.kill()
+        server.close()
     }
 })

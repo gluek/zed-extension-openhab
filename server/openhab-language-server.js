@@ -7782,6 +7782,7 @@ var require_ItemStore = __commonJS({
       }
     };
     module2.exports = ItemStore;
+    module2.exports.normalizeBaseUrl = normalizeBaseUrl;
   }
 });
 
@@ -7843,6 +7844,31 @@ var require_completion = __commonJS({
           return false;
       }
     }
+    function isThingUidPosition(extension, context) {
+      if (extension !== "things" || inStringOrComment(context)) {
+        return false;
+      }
+      return /^\s*(?:Thing|Bridge)\s+[A-Za-z0-9_:\-]*$/.test(context.before);
+    }
+    var KIND_MODULE = 9;
+    function thingUidCompletions(partial, bindingIds, uidsForBinding) {
+      const items = [];
+      if (!partial.includes(":")) {
+        for (const binding of bindingIds) {
+          if (binding.startsWith(partial)) {
+            items.push({ label: binding, kind: KIND_MODULE, detail: "binding" });
+          }
+        }
+      } else {
+        const binding = partial.split(":")[0];
+        for (const uid of uidsForBinding(binding)) {
+          if (uid.startsWith(partial) || uid === binding) {
+            items.push({ label: uid, kind: KIND_MODULE, detail: "thing type" });
+          }
+        }
+      }
+      return items;
+    }
     function itemCompletions(items) {
       return items.map((item) => ({
         label: item.name,
@@ -7882,8 +7908,10 @@ var require_completion = __commonJS({
       documentationFor,
       inStringOrComment,
       isItemTypePosition,
+      isThingUidPosition,
       itemCompletions,
       offersItems,
+      thingUidCompletions,
       typeCompletions
     };
   }
@@ -8291,6 +8319,103 @@ var require_references = __commonJS({
   }
 });
 
+// src/thingTypes.js
+var require_thingTypes = __commonJS({
+  "src/thingTypes.js"(exports2, module2) {
+    "use strict";
+    var ThingTypeStore = class {
+      /**
+       * @param {object} options
+       * @param {(message: string) => void} [options.log]
+       * @param {(config: object) => {baseUrl: string, authHeaders: object}} [options.rest] builds REST base URL + headers from settings (injectable for tests)
+       */
+      constructor({ log = () => {
+      }, rest } = {}) {
+        this.log = log;
+        this.rest = rest || defaultRest;
+        this.types = [];
+        this.loaded = false;
+      }
+      /** Fetch and cache all thing types. Never throws. */
+      async load(config) {
+        const { baseUrl, authHeaders } = this.rest(config);
+        try {
+          const response = await fetch(`${baseUrl}/thing-types`, { headers: authHeaders });
+          if (!response.ok) {
+            throw new Error(`status ${response.status}`);
+          }
+          const types = await response.json();
+          if (!Array.isArray(types)) {
+            throw new Error("no thing-type array");
+          }
+          this.types = types;
+          this.loaded = true;
+          this.log(`loaded ${types.length} thing types`);
+        } catch (error) {
+          this.log(`cannot load thing types (${error.message}); thing completion disabled`);
+          this.types = [];
+          this.loaded = false;
+        }
+      }
+      /** All distinct binding IDs (`hue`, `mqtt`, …), sorted. */
+      get bindingIds() {
+        const ids = /* @__PURE__ */ new Set();
+        for (const t of this.types) {
+          const binding = (t.UID || "").split(":")[0];
+          if (binding) {
+            ids.add(binding);
+          }
+        }
+        return [...ids].sort();
+      }
+      /**
+       * Thing-type UIDs for a binding, e.g. `['hue:0210', 'hue:0017', …]`.
+       * `shortIds` also returns the type ID without the binding prefix
+       * (`0210`), valid inside a `Bridge <binding>:… { … }` body.
+       */
+      uidsForBinding(binding, { shortIds = false } = {}) {
+        const out = [];
+        for (const t of this.types) {
+          const parts = (t.UID || "").split(":");
+          if (parts[0] !== binding) {
+            continue;
+          }
+          out.push(t.UID);
+          if (shortIds && parts.length >= 2) {
+            out.push(parts.slice(1).join(":"));
+          }
+        }
+        return out.sort();
+      }
+      /**
+       * Completion context in a `.things` file: what has been typed on the line
+       * before the cursor, e.g. `    Thing hue:` → `{ before: '    Thing hue:' }`.
+       *
+       * @param {{before: string}} context from `completion.contextAt`
+       */
+      thingTypeContext(context) {
+        const m = /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before);
+        if (!m) {
+          return null;
+        }
+        return { partial: m[1] };
+      }
+    };
+    var { normalizeBaseUrl } = require_ItemStore();
+    function defaultRest(config) {
+      const baseUrl = `${normalizeBaseUrl(config.host, config.port)}/rest`;
+      const authHeaders = {};
+      if (config.authToken) {
+        authHeaders.Authorization = `Bearer ${config.authToken}`;
+      } else if (config.basicAuth && config.basicAuth.username) {
+        authHeaders.Authorization = "Basic " + Buffer.from(`${config.basicAuth.username}:${config.basicAuth.password || ""}`).toString("base64");
+      }
+      return { baseUrl, authHeaders };
+    }
+    module2.exports = { ThingTypeStore };
+  }
+});
+
 // src/Server.js
 var require_Server = __commonJS({
   "src/Server.js"(exports2, module2) {
@@ -8310,6 +8435,7 @@ var require_Server = __commonJS({
     var { extensionOf } = require_files2();
     var { ItemIndex, NAME_RE } = require_itemIndex();
     var { findReferencesInWorktree } = require_references();
+    var { ThingTypeStore } = require_thingTypes();
     var DEFAULT_SETTINGS = {
       host: "localhost",
       port: 8080,
@@ -8332,6 +8458,7 @@ var require_Server = __commonJS({
         this.connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
         this.settings = { ...DEFAULT_SETTINGS };
         this.store = new ItemStore({ log: (message) => this.log(message) });
+        this.thingTypes = new ThingTypeStore({ log: (message) => this.log(message) });
         this.connection.onInitialize(this.initialize.bind(this));
         this.connection.onInitialized(this.initialized.bind(this));
         this.connection.onExit(this.exit.bind(this));
@@ -8426,6 +8553,7 @@ var require_Server = __commonJS({
           section: "openhab"
         });
         await this.store.restart(this.settings);
+        await this.thingTypes.load(this.settings);
       }
       /**
        * Ask the client for the `openhab` section. Returns `undefined` when the
@@ -8459,6 +8587,7 @@ var require_Server = __commonJS({
         );
         if (reconnected) {
           await this.store.restart(this.settings);
+          await this.thingTypes.load(this.settings);
         }
       }
       /** Completion scoped to the positions where openHAB accepts item names. */
@@ -8471,6 +8600,17 @@ var require_Server = __commonJS({
         const context = completion.contextAt(document.getText(), params.position);
         if (completion.isItemTypePosition(extension, context)) {
           return { isIncomplete: false, items: completion.typeCompletions() };
+        }
+        if (completion.isThingUidPosition(extension, context)) {
+          const partial = /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before)[1];
+          return {
+            isIncomplete: false,
+            items: completion.thingUidCompletions(
+              partial,
+              this.thingTypes.bindingIds,
+              (b) => this.thingTypes.uidsForBinding(b)
+            )
+          };
         }
         if (!completion.offersItems(extension, context)) {
           return { isIncomplete: false, items: [] };

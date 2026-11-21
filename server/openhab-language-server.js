@@ -8336,6 +8336,146 @@ var require_references = __commonJS({
   }
 });
 
+// src/diagnostics.js
+var require_diagnostics = __commonJS({
+  "src/diagnostics.js"(exports2, module2) {
+    "use strict";
+    var { maskStringsAndComments } = require_references();
+    var { parseDefinitionLine } = require_itemIndex();
+    var ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g;
+    var ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)/g;
+    var MEMBER_OF_RE = /Member\s+of\s*\(\s*([A-Za-z_]\w*)(\s*\))/g;
+    var SITEMAP_ITEM_RE = /\bitem\s*=\s*([A-Za-z_]\w*)/g;
+    var VISIBILITY_RE = /(?:\[|,)\s*([A-Za-z_]\w*)\s*(==|!=)/g;
+    var GROUP_LIST_RE = /\(([^()]*)\)/g;
+    var PERSIST_ITEMS_BLOCK_RE = /\bItems\s*\{([^{}]*)\}/g;
+    var PERSIST_NAME_RE = /(?:^|[{,]\s*|\n\s*)([A-Za-z_]\w*)(\*?)/g;
+    var LOCAL_DECL_RE = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)\s*=/g;
+    var NAME_TOKEN_RE = /^[A-Za-z_]\w*$/;
+    function collectMatches(re, masked, into, accept) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(masked)) !== null) {
+        if (m[2] === "*") {
+          continue;
+        }
+        let trailing = 0;
+        for (let i = 2; i < m.length; i++) {
+          trailing += (m[i] || "").length;
+        }
+        const start = m.index + m[0].length - m[1].length - trailing;
+        if (accept && !accept(start)) {
+          continue;
+        }
+        into.push({ name: m[1], index: start });
+      }
+    }
+    function findUnknownItemRefs(text, extension, isKnown) {
+      const lines = text.split(/\r?\n/);
+      const lineOffsets = [];
+      let offset = 0;
+      for (const line of lines) {
+        lineOffsets.push(offset);
+        offset += line.length + 1;
+      }
+      const maskedLines = [];
+      let inBlock = false;
+      for (const line of lines) {
+        const [masked, next] = maskStringsAndComments(line, inBlock);
+        inBlock = next;
+        maskedLines.push(masked);
+      }
+      const maskedWhole = maskedLines.join("\n");
+      const toRange = (index, name) => {
+        let line = 0;
+        while (line + 1 < lineOffsets.length && lineOffsets[line + 1] <= index) {
+          line += 1;
+        }
+        const character = index - lineOffsets[line];
+        return {
+          range: {
+            start: { line, character },
+            end: { line, character: character + name.length }
+          },
+          name,
+          message: `Unknown item '${name}' (not defined in any .items file and not present on the openHAB instance)`
+        };
+      };
+      const candidates = [];
+      if (extension === "items") {
+        for (let i = 0; i < lines.length; i++) {
+          const def = parseDefinitionLine(lines[i], i);
+          const nameEnd = def ? lineOffsets[i] + def.range.end.character : -1;
+          GROUP_LIST_RE.lastIndex = 0;
+          let g;
+          while ((g = GROUP_LIST_RE.exec(maskedLines[i])) !== null) {
+            if (lineOffsets[i] + g.index <= nameEnd) {
+              continue;
+            }
+            let cursor = 0;
+            for (const part of g[1].split(",")) {
+              const name = part.trim();
+              if (NAME_TOKEN_RE.test(name)) {
+                candidates.push({
+                  name,
+                  index: lineOffsets[i] + g.index + 1 + cursor + part.indexOf(name)
+                });
+              }
+              cursor += part.length + 1;
+            }
+          }
+        }
+      }
+      switch (extension) {
+        case "rules":
+        case "script":
+          collectMatches(ITEM_TRIGGER_RE, maskedWhole, candidates);
+          collectMatches(MEMBER_OF_RE, maskedWhole, candidates);
+          collectMatches(ITEM_MEMBER_RE, maskedWhole, candidates);
+          break;
+        case "sitemap":
+          collectMatches(SITEMAP_ITEM_RE, maskedWhole, candidates);
+          collectMatches(VISIBILITY_RE, maskedWhole, candidates);
+          break;
+        case "persist": {
+          const blocks = [];
+          PERSIST_ITEMS_BLOCK_RE.lastIndex = 0;
+          let b;
+          while ((b = PERSIST_ITEMS_BLOCK_RE.exec(maskedWhole)) !== null) {
+            blocks.push([b.index + b[0].indexOf("{") + 1, b.index + b[0].length - 1]);
+          }
+          collectMatches(
+            PERSIST_NAME_RE,
+            maskedWhole,
+            candidates,
+            (index) => blocks.some(([s, e]) => index >= s && index < e)
+          );
+          break;
+        }
+        default:
+          break;
+      }
+      const locals = /* @__PURE__ */ new Set();
+      let dm;
+      while ((dm = LOCAL_DECL_RE.exec(maskedWhole)) !== null) {
+        locals.add(dm[1]);
+      }
+      const seen = /* @__PURE__ */ new Set();
+      const out = [];
+      for (const c of candidates) {
+        const key = `${c.name}@${c.index}`;
+        if (seen.has(key) || locals.has(c.name) || isKnown(c.name)) {
+          continue;
+        }
+        seen.add(key);
+        out.push(toRange(c.index, c.name));
+      }
+      return out;
+    }
+    module2.exports = { findUnknownItemRefs };
+  }
+});
+
 // src/thingTypes.js
 var require_thingTypes = __commonJS({
   "src/thingTypes.js"(exports2, module2) {
@@ -8599,7 +8739,8 @@ var require_Server = __commonJS({
     var ItemStore = require_ItemStore();
     var completion = require_completion();
     var hover = require_hover();
-    var { extensionOf } = require_files2();
+    var { extensionOf, OPENHAB_EXTENSIONS } = require_files2();
+    var { findUnknownItemRefs } = require_diagnostics();
     var { ItemIndex, NAME_RE } = require_itemIndex();
     var { findReferencesInWorktree } = require_references();
     var { ThingTypeStore } = require_thingTypes();
@@ -8640,6 +8781,11 @@ var require_Server = __commonJS({
         this.connection.onRenameRequest(this.rename.bind(this));
         this.documents = new TextDocuments(TextDocument2);
         this.documents.listen(this.connection);
+        this.documents.onDidOpen((event) => this.validateDocument(event.document));
+        this.documents.onDidChangeContent((event) => this.validateDocument(event.document));
+        this.documents.onDidClose((event) => {
+          this.connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+        });
         this.index = null;
         this.connection.onDidChangeWatchedFiles((params) => {
           if (!this.index) {
@@ -8950,6 +9096,38 @@ var require_Server = __commonJS({
           });
         }
         return { changes };
+      }
+      /**
+       * An item is "known" when it is defined in the worktree's .items files or
+       * present on the running openHAB instance (live cache).
+       */
+      isKnownItem(name) {
+        const index = this.getIndex();
+        return index && index.has(name) || this.store.items.has(name);
+      }
+      /**
+       * Publish diagnostics for unknown item references in an open document.
+       * Runs on didOpen/didChange; cleared on didClose.
+       */
+      validateDocument(document) {
+        if (!document) {
+          return;
+        }
+        const extension = extensionOf(document.uri);
+        if (!OPENHAB_EXTENSIONS.includes(extension)) {
+          return;
+        }
+        const found = findUnknownItemRefs(document.getText(), extension, (name) => this.isKnownItem(name));
+        this.connection.sendDiagnostics({
+          uri: document.uri,
+          diagnostics: found.map((d) => ({
+            range: d.range,
+            severity: 2,
+            // Warning
+            source: "openhab-lsp",
+            message: d.message
+          }))
+        });
       }
       exit() {
         this.store.stop();

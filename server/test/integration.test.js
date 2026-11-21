@@ -295,6 +295,75 @@ test('definition, references, prepareRename, and rename over stdio', async () =>
     }
 })
 
+test('publishes unknown-item diagnostics for a .rules document over stdio', async () => {
+    const dir = makeWorktree()
+    fs.writeFileSync(
+        path.join(dir, 'demo.rules'),
+        'rule "x"\nwhen\n    Item Kitchen_Light changed\n    Item Kitchen_Lght changed\nthen\n    Kitchen_Lght.sendCommand(ON)\nend\n',
+    )
+    const { server, port } = await startFakeOpenHAB([
+        { name: 'Kitchen_Light', type: 'Switch', state: 'ON', tags: [], groupNames: [] },
+    ])
+    const client = startClient(port)
+    const rulesUri = 'file://' + path.join(dir, 'demo.rules')
+
+    try {
+        await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: 'file://' + dir,
+            workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: {
+                textDocument: {
+                    uri: rulesUri,
+                    languageId: 'openhab',
+                    version: 1,
+                    text: fs.readFileSync(path.join(dir, 'demo.rules'), 'utf8'),
+                },
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        const pubs = client.notifications.filter((n) => n.method === 'textDocument/publishDiagnostics' && n.params.uri === rulesUri)
+        assert.ok(pubs.length >= 1, 'expected at least one publishDiagnostics notification')
+        const diags = pubs[pubs.length - 1].params.diagnostics
+        // Kitchen_Lght at the trigger (3:9) and the sendCommand (5:4) are
+        // unknown; Kitchen_Light is known (in .items and on the instance).
+        assert.deepStrictEqual(
+            diags.map((d) => `${d.range.start.line}:${d.range.start.character}`).sort(),
+            ['3:9', '5:4'],
+        )
+        assert.ok(diags.every((d) => d.severity === 2 && d.source === 'openhab-lsp'))
+        assert.ok(diags.every((d) => d.message.includes('Kitchen_Lght')))
+
+        // Fix the typo -> diagnostics clear on didChange.
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: {
+                textDocument: { uri: rulesUri, version: 2 },
+                contentChanges: [
+                    { text: fs.readFileSync(path.join(dir, 'demo.rules'), 'utf8').replaceAll('Kitchen_Lght', 'Kitchen_Light') },
+                ],
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const pubs2 = client.notifications.filter((n) => n.method === 'textDocument/publishDiagnostics' && n.params.uri === rulesUri)
+        assert.deepStrictEqual(pubs2[pubs2.length - 1].params.diagnostics, [])
+    } finally {
+        client.child.kill()
+        server.close()
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
 test('offers thing-type completions in a .things file end to end', async () => {
     const { server, port } = await startFakeOpenHAB([])
     const client = startClient(port)

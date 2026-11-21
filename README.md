@@ -24,6 +24,11 @@ It provides:
   UIDs from your openHAB instance's `/rest/thing-types`.
 - **Channel completion** in `.items` files: inside `channel="…"`, offer the
   channel UIDs of your things (from `/rest/things`, kept live via events).
+- **Unknown-item warnings**: references to an item name that is neither
+  defined in any `.items` file in the project nor present on the running
+  openHAB instance are underlined as warnings in `.rules`, `.script`,
+  `.sitemap`, `.persist`, and group lists in `.items` — catches typos in rules
+  that would otherwise silently never fire.
 
 ## Supported files
 
@@ -89,7 +94,8 @@ Completion is offered where openHAB accepts item names (`.items`, `.rules`,
 `.script`, `.sitemap`) and is suppressed inside strings and comments. Hovering
 an item name shows its current state. If openHAB is unreachable, the server
 logs a message in Zed's log (`zed: open log`) and retries every 10 seconds;
-it never crashes.
+it never crashes. Unknown item references (not in any `.items` file in the
+project and not on the instance) are reported as warnings while you edit.
 
 ## Development
 

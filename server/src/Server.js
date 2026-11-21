@@ -11,9 +11,9 @@
  *    work even if the client never answers the configuration request.
  *  - Connection failures are logged to the client instead of being swallowed by
  *    a VS Code output channel that Zed cannot show.
- *  - No diagnostics. The upstream DocumentValidator is a stub returning an empty
- *    array, so it is not ported; advertising a provider that never reports
- *    anything is worse than not advertising one.
+ *  - Diagnostics for unknown item references (not the same as upstream's
+ *    DocumentValidator stub, which is not ported). Zed pulls diagnostics from
+ *    the server on open/change; see validateDocument().
  *
  * @see https://github.com/openhab/openhab-vscode/blob/main/serverJS/src/Server.js
  */
@@ -32,7 +32,8 @@ const { fileURLToPath } = require('node:url')
 const ItemStore = require('./ItemStore')
 const completion = require('./completion')
 const hover = require('./hover')
-const { extensionOf } = require('./files')
+const { extensionOf, OPENHAB_EXTENSIONS } = require('./files')
+const { findUnknownItemRefs } = require('./diagnostics')
 const { ItemIndex, NAME_RE } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
 const { ThingTypeStore } = require('./thingTypes')
@@ -90,6 +91,13 @@ class Server {
 
         this.documents = new TextDocuments(TextDocument)
         this.documents.listen(this.connection)
+
+        // Unknown-item diagnostics, pushed on open/change and cleared on close.
+        this.documents.onDidOpen((event) => this.validateDocument(event.document))
+        this.documents.onDidChangeContent((event) => this.validateDocument(event.document))
+        this.documents.onDidClose((event) => {
+            this.connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] })
+        })
 
         // Item definitions in the worktree's .items files (go-to-definition /
         // references / rename). Root comes from initialize params; scanned
@@ -428,6 +436,39 @@ class Server {
             })
         }
         return { changes }
+    }
+
+    /**
+     * An item is "known" when it is defined in the worktree's .items files or
+     * present on the running openHAB instance (live cache).
+     */
+    isKnownItem(name) {
+        const index = this.getIndex()
+        return (index && index.has(name)) || this.store.items.has(name)
+    }
+
+    /**
+     * Publish diagnostics for unknown item references in an open document.
+     * Runs on didOpen/didChange; cleared on didClose.
+     */
+    validateDocument(document) {
+        if (!document) {
+            return
+        }
+        const extension = extensionOf(document.uri)
+        if (!OPENHAB_EXTENSIONS.includes(extension)) {
+            return
+        }
+        const found = findUnknownItemRefs(document.getText(), extension, (name) => this.isKnownItem(name))
+        this.connection.sendDiagnostics({
+            uri: document.uri,
+            diagnostics: found.map((d) => ({
+                range: d.range,
+                severity: 2, // Warning
+                source: 'openhab-lsp',
+                message: d.message,
+            })),
+        })
     }
 
     exit() {

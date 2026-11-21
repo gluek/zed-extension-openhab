@@ -67,9 +67,15 @@ These are deliberate; see the comments in `src/` for the reasoning.
   completion uses, so it is live via the event stream.
 - **Failures are visible.** Connection problems are reported as LSP log
   messages (shown in Zed's log), and the stream reconnects with a 10 s backoff.
-- **No diagnostics.** Upstream's `DocumentValidator` is a stub returning an
-  empty array, so it is not ported rather than advertising a provider that never
-  reports anything.
+- **Unknown-item diagnostics.** Upstream's `DocumentValidator` is a stub
+  returning an empty array, so it is not ported; instead the server implements
+  its own check (`src/diagnostics.js`): item-name references that exist neither
+  in the worktree `.items` index nor in the live item cache are published as
+  warnings on `didOpen`/`didChange` (cleared on close). Candidate positions are
+  per file type — rule triggers and member accesses in `.rules`/`.script`,
+  group lists in `.items`, `item=`/`visibility=` in `.sitemap`, exact names in
+  the `Items { … }` block of `.persist` — with strings/comments masked and
+  `val`/`var` locals excluded.
 - **No `itemCasing` setting.** Upstream only uses it for the "Create Items from
   Channels" command, which has no Zed equivalent.
 - **Thing-type completion in `.things`.** The server fetches
@@ -89,6 +95,8 @@ These are deliberate; see the comments in `src/` for the reasoning.
   `references`, and `rename` onto its native commands, so `editor: go to
   definition` etc. work out of the box. Rename is workspace-text only — the
   running openHAB instance is not renamed.
+- **Unknown-item diagnostics** as described above; no capability flag is
+  needed (the client pushes diagnostics by default when documents sync).
 
 ## Development
 

@@ -9497,6 +9497,9 @@ var require_Server = __commonJS({
         }
         const extension = extensionOf(params.textDocument.uri);
         const context = completion.contextAt(document.getText(), params.position);
+        this.log(
+          `completion ${params.textDocument.uri.split("/").pop()} ${params.position.line}:${params.position.character} ext=${extension} before=${JSON.stringify(context.before.slice(-40))}`
+        );
         if (completion.isItemTypePosition(extension, context)) {
           return { isIncomplete: false, items: completion.typeCompletions() };
         }

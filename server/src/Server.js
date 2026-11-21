@@ -300,6 +300,12 @@ class Server {
         }
         const extension = extensionOf(params.textDocument.uri)
         const context = completion.contextAt(document.getText(), params.position)
+        // Debug aid for client-side issues (e.g. Zed not showing a menu):
+        // log the classified position once per request at info level.
+        this.log(
+            `completion ${params.textDocument.uri.split('/').pop()} ${params.position.line}:${params.position.character}` +
+                ` ext=${extension} before=${JSON.stringify(context.before.slice(-40))}`
+        )
 
         if (completion.isItemTypePosition(extension, context)) {
             return { isIncomplete: false, items: completion.typeCompletions() }

@@ -75,7 +75,11 @@ These are deliberate; see the comments in `src/` for the reasoning.
   per file type — rule triggers and member accesses in `.rules`/`.script`,
   group lists in `.items`, `item=`/`visibility=` in `.sitemap`, exact names in
   the `Items { … }` block of `.persist` — with strings/comments masked and
-  `val`/`var` locals excluded.
+  `val`/`var` locals excluded. `.items` files additionally get unknown-tag
+  warnings (`findUnknownTags`): a quoted value in a `["…"]` tag list that is
+  not in the semantic ontology (`SEMANTIC_TAGS`), not used by another item
+  definition in the worktree (position-aware: the line being checked does not
+  count), and not on the running instance is flagged.
 - **No `itemCasing` setting.** Upstream only uses it for the "Create Items from
   Channels" command, which has no Zed equivalent.
 - **Thing-type completion in `.things`.** The server fetches
@@ -121,7 +125,8 @@ These are deliberate; see the comments in `src/` for the reasoning.
   optionally the icon) before the bracket, so the label and Location config
   don't trigger tag completion. Project-local tags are collected from the
   worktree's `.items` files (rescanned on `didChangeWatchedFiles`) and offered
-  first.
+  first. Tags outside the ontology / project / instance are warned about —
+  see unknown-tag diagnostics above.
 - **Navigation (go-to-definition / references / rename).** The server scans the
   worktree's `.items` files into a definition index (`src/itemIndex.js`,
   refreshed on `workspace/didChangeWatchedFiles`) and finds references

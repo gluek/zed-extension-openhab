@@ -46,6 +46,10 @@ It provides:
   tags](https://www.openhab.org/docs/tutorial/model.html) (`Point`,
   `Measurement`, `Lighting`-style project tags from your other `.items`
   files, …).
+- **Unknown-tag warnings**: in the `["…"]` tag list of an `.items`
+  definition, a tag that is neither in openHAB's semantic ontology, nor used
+  by another item in the project, nor present on the running instance is
+  underlined as a warning — catches misspelled semantic tags.
 
 ## Supported files
 
@@ -112,7 +116,8 @@ Completion is offered where openHAB accepts item names (`.items`, `.rules`,
 an item name shows its current state. If openHAB is unreachable, the server
 logs a message in Zed's log (`zed: open log`) and retries every 10 seconds;
 it never crashes. Unknown item references (not in any `.items` file in the
-project and not on the instance) are reported as warnings while you edit.
+project and not on the instance) are reported as warnings while you edit,
+as are unknown semantic tags in `.items` tag lists.
 
 ## Development
 

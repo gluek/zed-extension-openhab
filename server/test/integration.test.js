@@ -413,6 +413,56 @@ test('publishes unknown-item diagnostics for a .rules document over stdio', asyn
     }
 })
 
+test('warns on unknown semantic tags in .items over stdio', async () => {
+    const dir = makeWorktree()
+    fs.writeFileSync(
+        path.join(dir, 'lamps.items'),
+        'Switch Kitchen_Light "Kitchen Light" <light> ["Lighting", "GroundFloor", "TypoTag"]\n' +
+            'Dimmer Hall_Light "Hall Light" ["Lighting", "GroundFloor"]\n' +
+            'Group gAll "All"\n',
+    )
+    const { server, port } = await startFakeOpenHAB([
+        { name: 'Kitchen_Light', type: 'Switch', state: 'ON', tags: ['Lighting'], groupNames: [] },
+    ])
+    const client = startClient(port)
+    const itemsUri = 'file://' + path.join(dir, 'lamps.items')
+
+    try {
+        await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: 'file://' + dir,
+            workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        const text = fs.readFileSync(path.join(dir, 'lamps.items'), 'utf8')
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: { textDocument: { uri: itemsUri, languageId: 'openhab', version: 1, text } },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        const pubs = client.notifications.filter((n) => n.method === 'textDocument/publishDiagnostics' && n.params.uri === itemsUri)
+        assert.ok(pubs.length >= 1, 'expected publishDiagnostics for the .items file')
+        const diags = pubs[pubs.length - 1].params.diagnostics
+        // "Lighting" is known (used on another item line + on the live item);
+        // "GroundFloor" is known (used on the Hall_Light line); "TypoTag" is
+        // used only on its own line, not in the ontology, not on the instance.
+        assert.deepStrictEqual(
+            diags.map((d) => `${d.range.start.line}:${d.range.start.character}:${d.message.split("'")[1]}`),
+            ['0:74:TypoTag'],
+        )
+        assert.ok(diags[0].message.includes("Unknown semantic tag 'TypoTag'"))
+    } finally {
+        client.child.kill()
+        server.close()
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
 test('serves inlay hints and semantic tokens for item names over stdio', async () => {
     const dir = makeWorktree()
     fs.writeFileSync(

@@ -3,7 +3,7 @@
 const test = require('node:test')
 const assert = require('node:assert')
 
-const { findUnknownItemRefs } = require('../src/diagnostics')
+const { findUnknownItemRefs, findUnknownTags } = require('../src/diagnostics')
 
 const KNOWN = new Set(['Kitchen_Light', 'gLights', 'Weather_Temperature', 'gAll'])
 const isKnown = (name) => KNOWN.has(name)
@@ -103,4 +103,49 @@ test('a longer item name sharing a prefix is not flagged when only the prefix is
     // Kitchen_Light (the exact trigger word) is NOT known here -> flagged once.
     assert.deepStrictEqual(positions(found), ['1:9'])
     assert.strictEqual(found[0].name, 'Kitchen_Light')
+})
+
+test('findUnknownTags flags non-ontology tags, keeps ontology and project tags', () => {
+    const items = [
+        'Switch A "a" <light> ["Lighting", "GroundFloor", "MyCustomTag"]',
+        'Switch B "b" ["Point", "Measurement"]',
+        '// Switch C "c" ["GhostTag"]', // comment line: skipped
+    ].join('\n')
+    const projectTags = new Set(['Lighting', 'GroundFloor'])
+    const found = findUnknownTags(items, (t) => projectTags.has(t))
+    assert.deepStrictEqual(positions(found), ['0:50'])
+    assert.strictEqual(found[0].name, 'MyCustomTag')
+    assert.ok(found[0].message.includes("Unknown semantic tag 'MyCustomTag'"))
+})
+
+test('findUnknownTags ignores Location config and the label string', () => {
+    const items = 'Location Home "Home" [ latitude="52.5", longitude="13.4" ]\nSwitch X "Taggy" ["Light"]\n'
+    const found = findUnknownTags(items, () => false)
+    // latitude/longitude are config keys, not tags; "Taggy" is the label;
+    // "Light" is in the ontology.
+    assert.deepStrictEqual(found, [])
+})
+
+test('findUnknownTags accepts live-instance tags via isKnownTag', () => {
+    const items = 'Switch A "a" ["VendorTag"]\n'
+    assert.deepStrictEqual(findUnknownTags(items, (t) => t === 'VendorTag'), [])
+    assert.strictEqual(findUnknownTags(items, () => false).length, 1)
+})
+
+test('findUnknownTags passes the match position so the caller can exclude the same line', () => {
+    // A tag used only on its own line is not "project-established".
+    const items = 'Switch A "a" ["LonelyTag"]\nSwitch B "b" ["SharedTag"]\nSwitch C "c" ["SharedTag"]\n'
+    const seen = []
+    const usageLines = { LonelyTag: [0], SharedTag: [1, 2] }
+    const isKnown = (tag, pos) => {
+        seen.push([tag, pos])
+        // Project-known only if the tag appears on a DIFFERENT line.
+        return (usageLines[tag] || []).some((l) => l !== pos.line)
+    }
+    const found = findUnknownTags(items, isKnown)
+    assert.deepStrictEqual(positions(found), ['0:15'])
+    assert.strictEqual(found[0].name, 'LonelyTag')
+    // All callbacks received a {line, character} position.
+    assert.ok(seen.length === 3)
+    assert.ok(seen.every(([, pos]) => typeof pos.line === 'number' && typeof pos.character === 'number'))
 })

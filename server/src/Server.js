@@ -38,7 +38,7 @@ const hover = require('./hover')
 const { extensionOf, OPENHAB_EXTENSIONS } = require('./files')
 const icons = require('./icons')
 const { codeActionsAt } = require('./codeActions')
-const { findUnknownItemRefs } = require('./diagnostics')
+const { findUnknownItemRefs, findUnknownTags } = require('./diagnostics')
 const { findItemPositions } = require('./itemPositions')
 const { ItemIndex, NAME_RE } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
@@ -701,29 +701,35 @@ class Server {
         return [...this._usedTags]
     }
 
-    /** (Re)scan the worktree's .items files for `["…"]` tag values. */
+    /**
+     * (Re)scan the worktree's .items files for `["…"]` tag values.
+     * Populates `_usedTags` (flat set, for completion) and `_tagUsages`
+     * (tag → [{file, line}], for position-aware diagnostics: a tag used
+     * only on the line being validated is NOT "project-known").
+     */
     rescanUsedTags() {
         const rootDir = this.rootDir
         if (!rootDir) {
             return
         }
         const tags = new Set()
+        const usages = new Map()
         const { collectItemsFiles } = require('./itemIndex')
-        const { collectSourceFiles } = require('./references')
         const fs = require('node:fs')
-        const TAG_LIST_RE = /\[[^\]]*\]/g
+        // Same tag-list shape as diagnostics.js: a […] after the label string,
+        // without '=' inside (Location config excluded).
+        const TAG_LIST_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g
         const STRING_RE = /"([^"]*)"|'([^']*)'/g
-        for (const file of [...collectItemsFiles(rootDir), ...collectSourceFiles(rootDir)]) {
-            if (!file.endsWith('.items')) {
-                continue
-            }
+        for (const file of collectItemsFiles(rootDir)) {
             let text
             try {
                 text = fs.readFileSync(file, 'utf8')
             } catch {
                 continue
             }
-            for (const line of text.split(/\r?\n/)) {
+            const lines = text.split(/\r?\n/)
+            for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+                const line = lines[lineNo]
                 // Only the tag list after the icon/label, i.e. a [ … ] that
                 // follows a `"label"` on the same line; skip Location config
                 // (`[ latitude=… ]` has `=` inside).
@@ -739,12 +745,32 @@ class Server {
                         const tag = s[1] ?? s[2]
                         if (tag) {
                             tags.add(tag)
+                            if (!usages.has(tag)) {
+                                usages.set(tag, [])
+                            }
+                            usages.get(tag).push({ file, line: lineNo })
                         }
                     }
                 }
             }
         }
         this._usedTags = tags
+        this._tagUsages = usages
+    }
+
+    /**
+     * Position-aware project-known check for the unknown-tag diagnostic: a
+     * tag counts as known from the project only if some `.items` line OTHER
+     * than `exclude` uses it (a tag appearing solely on the line being
+     * checked is not evidence it is established). Live-instance tags always
+     * count.
+     */
+    isKnownTagAt(tag, exclude) {
+        const usages = this._tagUsages?.get(tag)
+        if (usages && usages.some((u) => !(u.file === exclude.file && u.line === exclude.line))) {
+            return true
+        }
+        return [...this.store.items.values()].some((i) => i.tags && i.tags.includes(tag))
     }
 
     /**
@@ -768,7 +794,25 @@ class Server {
         if (!OPENHAB_EXTENSIONS.includes(extension)) {
             return
         }
-        const found = findUnknownItemRefs(document.getText(), extension, (name) => this.isKnownItem(name))
+        const text = document.getText()
+        const found = findUnknownItemRefs(text, extension, (name) => this.isKnownItem(name))
+        // `.items` additionally gets unknown-semantic-tag warnings (B11):
+        // known = ontology ∪ tags used elsewhere in the worktree ∪ tags on
+        // live items from the REST cache.
+        if (extension === 'items') {
+            this.getIndex() // ensures usedTags are scanned
+            let file = null
+            try {
+                file = fileURLToPath(document.uri)
+            } catch {
+                /* non-file uri */
+            }
+            found.push(
+                ...findUnknownTags(text, (tag, pos) =>
+                    file ? this.isKnownTagAt(tag, { file, line: pos.line }) : this.isKnownTagAt(tag, { file: null, line: -1 }),
+                ),
+            )
+        }
         this.connection.sendDiagnostics({
             uri: document.uri,
             diagnostics: found.map((d) => ({

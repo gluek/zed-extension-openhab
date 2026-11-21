@@ -21,6 +21,7 @@
 
 const { maskStringsAndComments } = require('./references')
 const { parseDefinitionLine } = require('./itemIndex')
+const { SEMANTIC_TAGS } = require('./icons')
 
 /** Member accesses that only make sense on items. Group 2 = the trailing `.member`. */
 const ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g
@@ -202,4 +203,73 @@ function findUnknownItemRefs(text, extension, isKnown) {
     return out
 }
 
-module.exports = { findUnknownItemRefs }
+/**
+ * The tag list of an `.items` definition line: a `["…", …]` bracket that
+ * follows the label string (and optional `<icon>`). Location config
+ * (`[ latitude=… ]`) contains `=` and is not a tag list.
+ */
+const TAG_LIST_LINE_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g
+
+/** One quoted value inside a tag list, with its offset inside the bracket. */
+const TAG_VALUE_RE = /"([^"]*)"|'([^']*)'/g
+
+/**
+ * Unknown semantic tags in a `.items` document: every quoted value in a
+ * `["…"]` tag list that is neither in openHAB's ontology (`SEMANTIC_TAGS`),
+ * nor used by any other item in the worktree, nor present on the running
+ * instance (live item tags). The check runs per definition line; comment
+ * lines are skipped.
+ *
+ * @param {string} text full document text
+ * @param {(tag: string, pos: {line: number, character: number}) => boolean} isKnownTag
+ *   extra known tags (project ∪ live). Receives the match position so the
+ *   caller can exclude tags used only on the very line being checked.
+ * @returns {Array<{range: object, name: string, message: string}>}
+ */
+function findUnknownTags(text, isKnownTag) {
+    const known = (tag, pos) => SEMANTIC_TAGS.includes(tag) || isKnownTag(tag, pos)
+    const out = []
+    const lines = text.split(/\r?\n/)
+    let inBlock = false
+    for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+        const raw = lines[lineNo]
+        // Mask strings/comments per line (block-comment state carried across
+        // lines), but run the tag-list regex on the RAW line so offsets stay
+        // true to the document; skip matches that fall inside a masked region.
+        const [masked, next] = maskStringsAndComments(raw, inBlock)
+        inBlock = next
+        TAG_LIST_LINE_RE.lastIndex = 0
+        let m
+        while ((m = TAG_LIST_LINE_RE.exec(raw)) !== null) {
+            if (m[0].includes('=')) {
+                continue // Location config
+            }
+            // The bracket must not start inside a comment or string.
+            const bracketAt = m.index + m[0].indexOf('[')
+            if (masked[bracketAt] === ' ') {
+                continue
+            }
+            const bracketStart = bracketAt + 1
+            TAG_VALUE_RE.lastIndex = 0
+            let v
+            while ((v = TAG_VALUE_RE.exec(m[1])) !== null) {
+                const tag = v[1] ?? v[2]
+                const character = bracketStart + v.index + 1 // +1 for the opening quote
+                if (!tag || known(tag, { line: lineNo, character })) {
+                    continue
+                }
+                out.push({
+                    range: {
+                        start: { line: lineNo, character },
+                        end: { line: lineNo, character: character + tag.length },
+                    },
+                    name: tag,
+                    message: `Unknown semantic tag '${tag}' (not in openHAB's ontology, not used by any item in this project, and not present on the openHAB instance)`,
+                })
+            }
+        }
+    }
+    return out
+}
+
+module.exports = { findUnknownItemRefs, findUnknownTags }

@@ -8695,6 +8695,7 @@ var require_diagnostics = __commonJS({
     "use strict";
     var { maskStringsAndComments } = require_references();
     var { parseDefinitionLine } = require_itemIndex();
+    var { SEMANTIC_TAGS } = require_icons();
     var ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g;
     var ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)/g;
     var MEMBER_OF_RE = /Member\s+of\s*\(\s*([A-Za-z_]\w*)(\s*\))/g;
@@ -8825,7 +8826,50 @@ var require_diagnostics = __commonJS({
       }
       return out;
     }
-    module2.exports = { findUnknownItemRefs };
+    var TAG_LIST_LINE_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g;
+    var TAG_VALUE_RE = /"([^"]*)"|'([^']*)'/g;
+    function findUnknownTags(text, isKnownTag) {
+      const known = (tag, pos) => SEMANTIC_TAGS.includes(tag) || isKnownTag(tag, pos);
+      const out = [];
+      const lines = text.split(/\r?\n/);
+      let inBlock = false;
+      for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+        const raw = lines[lineNo];
+        const [masked, next] = maskStringsAndComments(raw, inBlock);
+        inBlock = next;
+        TAG_LIST_LINE_RE.lastIndex = 0;
+        let m;
+        while ((m = TAG_LIST_LINE_RE.exec(raw)) !== null) {
+          if (m[0].includes("=")) {
+            continue;
+          }
+          const bracketAt = m.index + m[0].indexOf("[");
+          if (masked[bracketAt] === " ") {
+            continue;
+          }
+          const bracketStart = bracketAt + 1;
+          TAG_VALUE_RE.lastIndex = 0;
+          let v;
+          while ((v = TAG_VALUE_RE.exec(m[1])) !== null) {
+            const tag = v[1] ?? v[2];
+            const character = bracketStart + v.index + 1;
+            if (!tag || known(tag, { line: lineNo, character })) {
+              continue;
+            }
+            out.push({
+              range: {
+                start: { line: lineNo, character },
+                end: { line: lineNo, character: character + tag.length }
+              },
+              name: tag,
+              message: `Unknown semantic tag '${tag}' (not in openHAB's ontology, not used by any item in this project, and not present on the openHAB instance)`
+            });
+          }
+        }
+      }
+      return out;
+    }
+    module2.exports = { findUnknownItemRefs, findUnknownTags };
   }
 });
 
@@ -9243,7 +9287,7 @@ var require_Server = __commonJS({
     var { extensionOf, OPENHAB_EXTENSIONS } = require_files2();
     var icons = require_icons();
     var { codeActionsAt } = require_codeActions();
-    var { findUnknownItemRefs } = require_diagnostics();
+    var { findUnknownItemRefs, findUnknownTags } = require_diagnostics();
     var { findItemPositions } = require_itemPositions();
     var { ItemIndex, NAME_RE } = require_itemIndex();
     var { findReferencesInWorktree } = require_references();
@@ -9825,29 +9869,33 @@ var require_Server = __commonJS({
         }
         return [...this._usedTags];
       }
-      /** (Re)scan the worktree's .items files for `["…"]` tag values. */
+      /**
+       * (Re)scan the worktree's .items files for `["…"]` tag values.
+       * Populates `_usedTags` (flat set, for completion) and `_tagUsages`
+       * (tag → [{file, line}], for position-aware diagnostics: a tag used
+       * only on the line being validated is NOT "project-known").
+       */
       rescanUsedTags() {
         const rootDir = this.rootDir;
         if (!rootDir) {
           return;
         }
         const tags = /* @__PURE__ */ new Set();
+        const usages = /* @__PURE__ */ new Map();
         const { collectItemsFiles } = require_itemIndex();
-        const { collectSourceFiles } = require_references();
         const fs = require("node:fs");
-        const TAG_LIST_RE = /\[[^\]]*\]/g;
+        const TAG_LIST_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g;
         const STRING_RE = /"([^"]*)"|'([^']*)'/g;
-        for (const file of [...collectItemsFiles(rootDir), ...collectSourceFiles(rootDir)]) {
-          if (!file.endsWith(".items")) {
-            continue;
-          }
+        for (const file of collectItemsFiles(rootDir)) {
           let text;
           try {
             text = fs.readFileSync(file, "utf8");
           } catch {
             continue;
           }
-          for (const line of text.split(/\r?\n/)) {
+          const lines = text.split(/\r?\n/);
+          for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+            const line = lines[lineNo];
             TAG_LIST_RE.lastIndex = 0;
             let m;
             while ((m = TAG_LIST_RE.exec(line)) !== null) {
@@ -9860,12 +9908,31 @@ var require_Server = __commonJS({
                 const tag = s[1] ?? s[2];
                 if (tag) {
                   tags.add(tag);
+                  if (!usages.has(tag)) {
+                    usages.set(tag, []);
+                  }
+                  usages.get(tag).push({ file, line: lineNo });
                 }
               }
             }
           }
         }
         this._usedTags = tags;
+        this._tagUsages = usages;
+      }
+      /**
+       * Position-aware project-known check for the unknown-tag diagnostic: a
+       * tag counts as known from the project only if some `.items` line OTHER
+       * than `exclude` uses it (a tag appearing solely on the line being
+       * checked is not evidence it is established). Live-instance tags always
+       * count.
+       */
+      isKnownTagAt(tag, exclude) {
+        const usages = this._tagUsages?.get(tag);
+        if (usages && usages.some((u) => !(u.file === exclude.file && u.line === exclude.line))) {
+          return true;
+        }
+        return [...this.store.items.values()].some((i) => i.tags && i.tags.includes(tag));
       }
       /**
        * An item is "known" when it is defined in the worktree's .items files or
@@ -9887,7 +9954,22 @@ var require_Server = __commonJS({
         if (!OPENHAB_EXTENSIONS.includes(extension)) {
           return;
         }
-        const found = findUnknownItemRefs(document.getText(), extension, (name) => this.isKnownItem(name));
+        const text = document.getText();
+        const found = findUnknownItemRefs(text, extension, (name) => this.isKnownItem(name));
+        if (extension === "items") {
+          this.getIndex();
+          let file = null;
+          try {
+            file = fileURLToPath(document.uri);
+          } catch {
+          }
+          found.push(
+            ...findUnknownTags(
+              text,
+              (tag, pos) => file ? this.isKnownTagAt(tag, { file, line: pos.line }) : this.isKnownTagAt(tag, { file: null, line: -1 })
+            )
+          );
+        }
         this.connection.sendDiagnostics({
           uri: document.uri,
           diagnostics: found.map((d) => ({

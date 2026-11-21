@@ -645,9 +645,14 @@ class Server {
                 } catch {
                     // fall through and try the name as UID
                 }
-                const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(uid)}/run`, {
+                // openHAB's endpoint is /rules/{uid}/runnow (there is no /run);
+                // it calls ruleManager.runNow(uid, considerConditions=false),
+                // i.e. the "when" triggers/conditions are NOT evaluated — only
+                // the "then" actions run, with a synthetic ExecutionEvent.
+                const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(uid)}/runnow`, {
                     method: 'POST',
-                    headers: this.store.authHeaders,
+                    headers: { ...this.store.authHeaders, 'Content-Type': 'application/json' },
+                    body: '{}',
                 })
                 if (!response.ok) {
                     this.log(`run rule ${name} (uid ${uid}) failed: HTTP ${response.status}`)

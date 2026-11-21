@@ -33,9 +33,13 @@ function startFakeOpenHAB(items) {
             return
         }
         if (req.method === 'POST' && req.url.startsWith('/rest/rules/')) {
-            posted.push({ url: req.url, body: '' })
-            res.writeHead(200)
-            res.end()
+            let body = ''
+            req.on('data', (c) => (body += c))
+            req.on('end', () => {
+                posted.push({ url: req.url, body })
+                res.writeHead(200)
+                res.end()
+            })
             return
         }
         if (req.url.startsWith('/rest/rules')) {
@@ -602,13 +606,17 @@ test('code actions: sendCommand, runRule, createItemFromChannel over stdio', asy
         assert.deepStrictEqual(posted, [{ url: '/rest/items/Kitchen_Light', body: 'OFF' }])
 
         // 4. Execute runRule -> the server resolves name -> UID via
-        // GET /rest/rules, then POSTs /rest/rules/rule-uid-1/run.
+        // GET /rest/rules, then POSTs /rest/rules/{uid}/runnow (openHAB's
+        // actual endpoint; /run does not exist).
         await client.request(5, 'workspace/executeCommand', {
             command: 'openhab.runRule',
             arguments: ['Evening'],
         })
         await new Promise((resolve) => setTimeout(resolve, 300))
-        assert.ok(posted.some((p) => p.url === '/rest/rules/rule-uid-1/run'), `got ${JSON.stringify(posted)}`)
+        assert.ok(
+            posted.some((p) => p.url === '/rest/rules/rule-uid-1/runnow'),
+            `got ${JSON.stringify(posted)}`,
+        )
 
         // 5. Code actions on the channel="…" line in .items: the action
         // carries the WorkspaceEdit directly (Zed applies action edits and

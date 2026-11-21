@@ -9584,9 +9584,10 @@ var require_Server = __commonJS({
               }
             } catch {
             }
-            const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(uid)}/run`, {
+            const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(uid)}/runnow`, {
               method: "POST",
-              headers: this.store.authHeaders
+              headers: { ...this.store.authHeaders, "Content-Type": "application/json" },
+              body: "{}"
             });
             if (!response.ok) {
               this.log(`run rule ${name} (uid ${uid}) failed: HTTP ${response.status}`);

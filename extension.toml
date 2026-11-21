@@ -1,9 +1,9 @@
 id = "openhab"
 name = "openHAB"
-version = "0.1.0"
+version = "0.2.0"
 schema_version = 1
 authors = ["Gerrit Lükens"]
-description = "openHAB textual configuration support: syntax highlighting, hover, and item completion."
+description = "openHAB textual configuration support: syntax highlighting, hover, completion, navigation, and diagnostics."
 repository = "https://github.com/gluek/zed-extension-openhab"
 
 # Purpose-built tree-sitter-openhab grammar (fork of tree-sitter-java with

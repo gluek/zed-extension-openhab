@@ -8173,6 +8173,159 @@ var require_itemIndex = __commonJS({
   }
 });
 
+// src/codeActions.js
+var require_codeActions = __commonJS({
+  "src/codeActions.js"(exports2, module2) {
+    "use strict";
+    var { pathToFileURL } = require("node:url");
+    var path = require("node:path");
+    var { WORD_CHAR } = require_hover();
+    var { NAME_RE } = require_itemIndex();
+    var COMMANDS_BY_TYPE = {
+      Switch: ["ON", "OFF"],
+      Dimmer: ["ON", "OFF", "INCREASE", "DECREASE"],
+      Rollershutter: ["UP", "DOWN", "STOP"],
+      Player: ["PLAY", "PAUSE", "STOP", "NEXT", "PREVIOUS"],
+      Color: ["ON", "OFF"],
+      Number: [],
+      String: [],
+      DateTime: [],
+      Contact: [],
+      Location: [],
+      Group: null
+      // group type depends on members; offer the common switch set
+    };
+    var DEFAULT_COMMANDS = ["ON", "OFF"];
+    var CHANNEL_ASSIGN_RE = /\bchannel\s*=\s*"([^"]+)"/g;
+    var RULE_HEADER_RE = /^\s*rule\s+"([^"]+)"/;
+    function itemNameFromChannelUid(uid) {
+      const cleaned = uid.split(":").map((part) => part.replace(/[^A-Za-z0-9_]/g, "_")).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("_");
+      return /^[A-Za-z_]/.test(cleaned) ? cleaned : `Item_${cleaned}`;
+    }
+    function wordAt(text, position) {
+      const line = text.split(/\r?\n/)[position.line] || "";
+      const col = Math.min(position.character, line.length);
+      if (!WORD_CHAR.test(line[col] || "") && !(col > 0 && WORD_CHAR.test(line[col - 1]))) {
+        return null;
+      }
+      let start = col;
+      while (start > 0 && WORD_CHAR.test(line[start - 1])) {
+        start -= 1;
+      }
+      let end = col;
+      while (end < line.length && WORD_CHAR.test(line[end])) {
+        end += 1;
+      }
+      return line.slice(start, end) || null;
+    }
+    function codeActionsAt(text, extension, params, ctx) {
+      const actions = [];
+      const line = text.split(/\r?\n/)[params.range.start.line] || "";
+      const col = params.range.start.character;
+      if (extension === "rules" || extension === "script") {
+        const rule = RULE_HEADER_RE.exec(line);
+        if (rule && col <= rule[0].length) {
+          actions.push({
+            title: `Run rule "${rule[1]}" on openHAB`,
+            kind: "quickfix",
+            command: {
+              title: `Run rule "${rule[1]}"`,
+              command: "openhab.runRule",
+              arguments: [rule[1]]
+            }
+          });
+        }
+        const word = wordAt(text, params.range.start);
+        if (word && NAME_RE.test(word)) {
+          const item = ctx.itemFor(word);
+          if (item) {
+            const type = (item.type || "").replace(/:.*$/, "");
+            const commands = COMMANDS_BY_TYPE[type] ?? (type === "Group" ? DEFAULT_COMMANDS : DEFAULT_COMMANDS);
+            for (const cmd of commands) {
+              actions.push({
+                title: `Send ${cmd} to ${word}`,
+                kind: "quickfix",
+                command: {
+                  title: `Send ${cmd} to ${word}`,
+                  command: "openhab.sendCommand",
+                  arguments: [word, cmd]
+                }
+              });
+            }
+          }
+        }
+        return actions;
+      }
+      if (extension === "items") {
+        CHANNEL_ASSIGN_RE.lastIndex = 0;
+        let m;
+        while ((m = CHANNEL_ASSIGN_RE.exec(line)) !== null) {
+          const uid = m[1];
+          const colon = uid.lastIndexOf(":");
+          const thingUID = colon > 0 ? uid.slice(0, colon) : uid;
+          const channels = ctx.channelsOf(thingUID);
+          const channel = channels.find((c) => c.uid === uid);
+          if (!channel) {
+            continue;
+          }
+          const itemType = channel.itemType || "Switch";
+          const name = itemNameFromChannelUid(uid);
+          actions.push({
+            title: `Create item ${name} (${itemType}) from channel ${uid}`,
+            kind: "quickfix",
+            command: {
+              title: `Create item from channel ${uid}`,
+              command: "openhab.createItemFromChannel",
+              arguments: [name, itemType, uid]
+            }
+          });
+        }
+        return actions;
+      }
+      if (extension === "sitemap") {
+        const word = wordAt(text, params.range.start);
+        if (word && NAME_RE.test(word) && ctx.itemFor(word)) {
+          const commands = DEFAULT_COMMANDS;
+          for (const cmd of commands) {
+            actions.push({
+              title: `Send ${cmd} to ${word}`,
+              kind: "quickfix",
+              command: {
+                title: `Send ${cmd} to ${word}`,
+                command: "openhab.sendCommand",
+                arguments: [word, cmd]
+              }
+            });
+          }
+        }
+      }
+      return actions;
+    }
+    function createItemEdit(uri, text, { name, itemType, channelUID }) {
+      const endsWithNewline = text.endsWith("\n");
+      const line = `${itemType} ${name} "${name}" { channel="${channelUID}" }
+`;
+      const insertAt = text.length;
+      const position = positionOf(text, insertAt);
+      return {
+        changes: {
+          [uri]: [
+            {
+              range: { start: position, end: position },
+              newText: (endsWithNewline || text === "" ? "" : "\n") + line
+            }
+          ]
+        }
+      };
+    }
+    function positionOf(text, offset) {
+      const lines = text.slice(0, offset).split("\n");
+      return { line: lines.length - 1, character: lines[lines.length - 1].length };
+    }
+    module2.exports = { codeActionsAt, createItemEdit, itemNameFromChannelUid, COMMANDS_BY_TYPE };
+  }
+});
+
 // src/references.js
 var require_references = __commonJS({
   "src/references.js"(exports2, module2) {
@@ -8899,6 +9052,7 @@ var require_Server = __commonJS({
     var completion = require_completion();
     var hover = require_hover();
     var { extensionOf, OPENHAB_EXTENSIONS } = require_files2();
+    var { codeActionsAt, createItemEdit } = require_codeActions();
     var { findUnknownItemRefs } = require_diagnostics();
     var { findItemPositions } = require_itemPositions();
     var { ItemIndex, NAME_RE } = require_itemIndex();
@@ -8953,6 +9107,8 @@ var require_Server = __commonJS({
         this.connection.onRenameRequest(this.rename.bind(this));
         this.connection.onRequest(SemanticTokensRequest.method, this.getSemanticTokens.bind(this));
         this.connection.onRequest("textDocument/inlayHint", this.getInlayHints.bind(this));
+        this.connection.onCodeAction(this.getCodeActions.bind(this));
+        this.connection.onExecuteCommand(this.executeCommand.bind(this));
         this.documents = new TextDocuments(TextDocument2);
         this.documents.listen(this.connection);
         this.documents.onDidOpen((event) => this.validateDocument(event.document));
@@ -9030,6 +9186,12 @@ var require_Server = __commonJS({
             semanticTokensProvider: {
               legend: SEMANTIC_TOKEN_LEGEND,
               full: true
+            },
+            codeActionProvider: {
+              codeActionKinds: ["quickfix"]
+            },
+            executeCommandProvider: {
+              commands: ["openhab.sendCommand", "openhab.runRule", "openhab.createItemFromChannel"]
             }
           },
           serverInfo: { name: "openHAB Language Server", version: "0.1.0" }
@@ -9362,6 +9524,93 @@ var require_Server = __commonJS({
         }
         if (sent) {
           this.log(`item cache changed; requested client refresh (${sent})`);
+        }
+      }
+      /**
+       * Code actions (B6): run rule, send command to an item, create item from
+       * a channel. See codeActions.js for the position rules.
+       */
+      getCodeActions(params) {
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+          return [];
+        }
+        const extension = extensionOf(params.textDocument.uri);
+        this.lastCodeActionUri = params.textDocument.uri;
+        return codeActionsAt(document.getText(), extension, params, {
+          itemFor: (name) => this.store.items.get(name),
+          channelsOf: (thingUID) => this.things.channelsOf(thingUID),
+          rootDir: this.rootDir
+        });
+      }
+      /**
+       * Execute a code-action command (B6). Commands that touch the running
+       * openHAB instance do a REST call; `createItemFromChannel` returns a
+       * WorkspaceEdit (applied by the client) — Zed collects
+       * `last_workspace_edits_by_language_server`, so returning the edit from
+       * the executeCommand handler is enough for it to be applied.
+       */
+      async executeCommand(params) {
+        const [name, command] = params.arguments || [];
+        switch (params.command) {
+          case "openhab.sendCommand": {
+            if (!this.store.config) {
+              this.log("sendCommand: openHAB not connected; ignoring");
+              return null;
+            }
+            if (!name || !command || !NAME_RE.test(name)) {
+              return null;
+            }
+            const response = await fetch(`${this.store.baseUrl}/items/${encodeURIComponent(name)}`, {
+              method: "POST",
+              headers: { ...this.store.authHeaders, "Content-Type": "text/plain" },
+              body: String(command)
+            });
+            if (!response.ok) {
+              this.log(`sendCommand ${command} -> ${name} failed: HTTP ${response.status}`);
+              return null;
+            }
+            this.log(`sent ${command} to ${name}`);
+            return null;
+          }
+          case "openhab.runRule": {
+            if (!name || !this.store.config) {
+              if (name) {
+                this.log("runRule: openHAB not connected; ignoring");
+              }
+              return null;
+            }
+            const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(name)}/run`, {
+              method: "POST",
+              headers: this.store.authHeaders
+            });
+            if (!response.ok) {
+              this.log(`run rule ${name} failed: HTTP ${response.status}`);
+              return null;
+            }
+            this.log(`ran rule ${name}`);
+            return null;
+          }
+          case "openhab.createItemFromChannel": {
+            const [itemName, itemType, channelUID] = params.arguments || [];
+            if (!itemName || !itemType || !channelUID || !NAME_RE.test(itemName)) {
+              return null;
+            }
+            const uri = this.lastCodeActionUri;
+            const document = uri && this.documents.get(uri);
+            if (!document) {
+              return null;
+            }
+            return {
+              edit: createItemEdit(uri, document.getText(), {
+                name: itemName,
+                itemType,
+                channelUID
+              })
+            };
+          }
+          default:
+            return null;
         }
       }
       /**

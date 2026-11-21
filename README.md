@@ -35,6 +35,11 @@ It provides:
 - **Semantic highlighting**: item names are colored as variables and item
   definitions as declarations, distinguishing them from rule-local variables
   and DSL keywords.
+- **Code actions** (via `editor: code actions`): *Send ON/OFF/… to item* on an
+  item name in `.rules`/`.script`/`.sitemap` (POSTs to the running instance),
+  *Run rule* on a `rule "…"` header (POST `/rest/rules/{id}/run`), and *Create
+  item from channel* on a `channel="…"` line in `.items` (inserts a linked
+  item definition).
 
 ## Supported files
 

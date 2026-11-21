@@ -99,6 +99,14 @@ These are deliberate; see the comments in `src/` for the reasoning.
   references as `variable` and `.items` definition names as `property` +
   `declaration`, so Zed colors them differently from locals/keywords. Built
   with `SemanticTokensBuilder` (correct delta encoding).
+- **Code actions + executeCommand (B6).** `textDocument/codeAction` offers
+  `quickfix` actions at sensible positions (`src/codeActions.js`), and
+  `workspace/executeCommand` runs them: `openhab.sendCommand` (POST
+  `/rest/items/{name}` with a per-type command list), `openhab.runRule` (POST
+  `/rest/rules/{id}/run`), `openhab.createItemFromChannel` (returns a
+  WorkspaceEdit appending a linked item to the `.items` file — Zed applies
+  edits returned from executeCommand). The commands are advertised in
+  `executeCommandProvider.commands`, which Zed requires before executing.
 - **Navigation (go-to-definition / references / rename).** The server scans the
   worktree's `.items` files into a definition index (`src/itemIndex.js`,
   refreshed on `workspace/didChangeWatchedFiles`) and finds references

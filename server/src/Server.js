@@ -36,6 +36,7 @@ const ItemStore = require('./ItemStore')
 const completion = require('./completion')
 const hover = require('./hover')
 const { extensionOf, OPENHAB_EXTENSIONS } = require('./files')
+const { codeActionsAt, createItemEdit } = require('./codeActions')
 const { findUnknownItemRefs } = require('./diagnostics')
 const { findItemPositions } = require('./itemPositions')
 const { ItemIndex, NAME_RE } = require('./itemIndex')
@@ -115,6 +116,8 @@ class Server {
         // vscode-languageserver 7.0 has no inlay-hint feature (the protocol lib
         // predates LSP 3.17), so register the request by method string.
         this.connection.onRequest('textDocument/inlayHint', this.getInlayHints.bind(this))
+        this.connection.onCodeAction(this.getCodeActions.bind(this))
+        this.connection.onExecuteCommand(this.executeCommand.bind(this))
 
         this.documents = new TextDocuments(TextDocument)
         this.documents.listen(this.connection)
@@ -210,6 +213,12 @@ class Server {
                 semanticTokensProvider: {
                     legend: SEMANTIC_TOKEN_LEGEND,
                     full: true,
+                },
+                codeActionProvider: {
+                    codeActionKinds: ['quickfix'],
+                },
+                executeCommandProvider: {
+                    commands: ['openhab.sendCommand', 'openhab.runRule', 'openhab.createItemFromChannel'],
                 },
             },
             serverInfo: { name: 'openHAB Language Server', version: '0.1.0' },
@@ -561,6 +570,102 @@ class Server {
         }
         if (sent) {
             this.log(`item cache changed; requested client refresh (${sent})`)
+        }
+    }
+
+    /**
+     * Code actions (B6): run rule, send command to an item, create item from
+     * a channel. See codeActions.js for the position rules.
+     */
+    getCodeActions(params) {
+        const document = this.documents.get(params.textDocument.uri)
+        if (!document) {
+            return []
+        }
+        const extension = extensionOf(params.textDocument.uri)
+        // Remember the document so executeCommand('openhab.createItemFromChannel')
+        // knows where to insert the new item.
+        this.lastCodeActionUri = params.textDocument.uri
+        return codeActionsAt(document.getText(), extension, params, {
+            itemFor: (name) => this.store.items.get(name),
+            channelsOf: (thingUID) => this.things.channelsOf(thingUID),
+            rootDir: this.rootDir,
+        })
+    }
+
+    /**
+     * Execute a code-action command (B6). Commands that touch the running
+     * openHAB instance do a REST call; `createItemFromChannel` returns a
+     * WorkspaceEdit (applied by the client) — Zed collects
+     * `last_workspace_edits_by_language_server`, so returning the edit from
+     * the executeCommand handler is enough for it to be applied.
+     */
+    async executeCommand(params) {
+        const [name, command] = params.arguments || []
+        switch (params.command) {
+            case 'openhab.sendCommand': {
+                if (!this.store.config) {
+                    this.log('sendCommand: openHAB not connected; ignoring')
+                    return null
+                }
+                if (!name || !command || !NAME_RE.test(name)) {
+                    return null
+                }
+                const response = await fetch(`${this.store.baseUrl}/items/${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    headers: { ...this.store.authHeaders, 'Content-Type': 'text/plain' },
+                    body: String(command),
+                })
+                if (!response.ok) {
+                    this.log(`sendCommand ${command} -> ${name} failed: HTTP ${response.status}`)
+                    return null
+                }
+                this.log(`sent ${command} to ${name}`)
+                return null
+            }
+            case 'openhab.runRule': {
+                if (!name || !this.store.config) {
+                    if (name) {
+                        this.log('runRule: openHAB not connected; ignoring')
+                    }
+                    return null
+                }
+                // openHAB runs rules by UID; for file-based rules the UID is
+                // the rule name in `rule "…"`.
+                const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(name)}/run`, {
+                    method: 'POST',
+                    headers: this.store.authHeaders,
+                })
+                if (!response.ok) {
+                    this.log(`run rule ${name} failed: HTTP ${response.status}`)
+                    return null
+                }
+                this.log(`ran rule ${name}`)
+                return null
+            }
+            case 'openhab.createItemFromChannel': {
+                const [itemName, itemType, channelUID] = params.arguments || []
+                if (!itemName || !itemType || !channelUID || !NAME_RE.test(itemName)) {
+                    return null
+                }
+                // The edit goes into the .items document the action was invoked
+                // on; find it from the arguments' originating document via the
+                // last code-action request (stored in getCodeActions).
+                const uri = this.lastCodeActionUri
+                const document = uri && this.documents.get(uri)
+                if (!document) {
+                    return null
+                }
+                return {
+                    edit: createItemEdit(uri, document.getText(), {
+                        name: itemName,
+                        itemType,
+                        channelUID,
+                    }),
+                }
+            }
+            default:
+                return null
         }
     }
 

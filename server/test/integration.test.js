@@ -18,7 +18,26 @@ const SERVER = path.join(__dirname, '..', 'openhab-language-server.js')
 /** Minimal openHAB stand-in: item list plus an event stream that stays open. */
 function startFakeOpenHAB(items) {
     const streams = [] // open SSE response objects, so tests can push events
+    const posted = [] // captured POST requests (sendCommand / runRule)
     const server = http.createServer((req, res) => {
+        // POST handlers must come first: '/rest/items' prefix-matches
+        // '/rest/items/<name>' too.
+        if (req.method === 'POST' && req.url.startsWith('/rest/items/')) {
+            let body = ''
+            req.on('data', (c) => (body += c))
+            req.on('end', () => {
+                posted.push({ url: req.url, body })
+                res.writeHead(200)
+                res.end()
+            })
+            return
+        }
+        if (req.method === 'POST' && req.url.startsWith('/rest/rules/')) {
+            posted.push({ url: req.url, body: '' })
+            res.writeHead(200)
+            res.end()
+            return
+        }
         if (req.url.startsWith('/rest/items')) {
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify(items))
@@ -66,6 +85,7 @@ function startFakeOpenHAB(items) {
             resolve({
                 server,
                 port: server.address().port,
+                posted,
                 /** Push one SSE event to all connected streams. */
                 pushEvent: (topic, type, payload) => {
                     const line = `data: ${JSON.stringify({ topic, type, payload: JSON.stringify(payload) })}\n\n`
@@ -502,6 +522,107 @@ test('serves inlay hints and semantic tokens for item names over stdio', async (
             hints2.result.map((h) => `${h.position.line}:${h.position.character}:${h.label}`),
             ['2:22: OFF', '4:17: OFF'],
         )
+    } finally {
+        client.child.kill()
+        server.close()
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('code actions: sendCommand, runRule, createItemFromChannel over stdio', async () => {
+    const dir = makeWorktree()
+    fs.writeFileSync(
+        path.join(dir, 'demo.rules'),
+        'rule "Evening"\nwhen\n    Item Kitchen_Light changed\nthen\n    Kitchen_Light.sendCommand(ON)\nend\n',
+    )
+    fs.writeFileSync(
+        path.join(dir, 'lamps.items'),
+        'Switch Kitchen_Light "Kitchen Light" <light> (gAll) { channel="hue:0210:1:bulb1:color" }\nGroup gAll "All"\n',
+    )
+    const fake = await startFakeOpenHAB([
+        { name: 'Kitchen_Light', type: 'Switch', state: 'ON', tags: [], groupNames: [] },
+    ])
+    const { server, port, posted } = fake
+    const client = startClient(port)
+    const rulesUri = 'file://' + path.join(dir, 'demo.rules')
+    const itemsUri = 'file://' + path.join(dir, 'lamps.items')
+
+    try {
+        const init = await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: 'file://' + dir,
+            workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        assert.deepStrictEqual(init.result.capabilities.executeCommandProvider.commands.sort(), [
+            'openhab.createItemFromChannel',
+            'openhab.runRule',
+            'openhab.sendCommand',
+        ])
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        const rulesText = fs.readFileSync(path.join(dir, 'demo.rules'), 'utf8')
+        const itemsText = fs.readFileSync(path.join(dir, 'lamps.items'), 'utf8')
+        client.send({ jsonrpc: '2.0', method: 'textDocument/didOpen', params: { textDocument: { uri: rulesUri, languageId: 'openhab', version: 1, text: rulesText } } })
+        client.send({ jsonrpc: '2.0', method: 'textDocument/didOpen', params: { textDocument: { uri: itemsUri, languageId: 'openhab', version: 1, text: itemsText } } })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        // 1. Code actions on the rule header: runRule.
+        const headerActions = await client.request(2, 'textDocument/codeAction', {
+            textDocument: { uri: rulesUri },
+            range: { start: { line: 0, character: 3 }, end: { line: 0, character: 3 } },
+            context: { diagnostics: [] },
+        })
+        const runRule = headerActions.result.find((a) => a.command?.command === 'openhab.runRule')
+        assert.ok(runRule, `expected runRule action, got ${JSON.stringify(headerActions.result)}`)
+        assert.deepStrictEqual(runRule.command.arguments, ['Evening'])
+
+        // 2. Code actions on the item name in the rule body: sendCommand ON/OFF.
+        const bodyActions = await client.request(3, 'textDocument/codeAction', {
+            textDocument: { uri: rulesUri },
+            range: { start: { line: 4, character: 5 }, end: { line: 4, character: 5 } },
+            context: { diagnostics: [] },
+        })
+        const sendCmds = bodyActions.result.filter((a) => a.command?.command === 'openhab.sendCommand')
+        assert.deepStrictEqual(sendCmds.map((a) => a.command.arguments[1]).sort(), ['OFF', 'ON'])
+
+        // 3. Execute sendCommand OFF -> the fake API must receive the POST.
+        await client.request(4, 'workspace/executeCommand', {
+            command: 'openhab.sendCommand',
+            arguments: ['Kitchen_Light', 'OFF'],
+        })
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        assert.deepStrictEqual(posted, [{ url: '/rest/items/Kitchen_Light', body: 'OFF' }])
+
+        // 4. Execute runRule -> POST /rest/rules/Evening/run.
+        await client.request(5, 'workspace/executeCommand', {
+            command: 'openhab.runRule',
+            arguments: ['Evening'],
+        })
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        assert.ok(posted.some((p) => p.url === '/rest/rules/Evening/run'))
+
+        // 5. Code actions on the channel="…" line in .items: createItemFromChannel.
+        const itemActions = await client.request(6, 'textDocument/codeAction', {
+            textDocument: { uri: itemsUri },
+            range: { start: { line: 0, character: 60 }, end: { line: 0, character: 60 } },
+            context: { diagnostics: [] },
+        })
+        const create = itemActions.result.find((a) => a.command?.command === 'openhab.createItemFromChannel')
+        assert.ok(create, `expected createItemFromChannel, got ${JSON.stringify(itemActions.result)}`)
+        assert.deepStrictEqual(create.command.arguments, ['Hue_0210_1_Bulb1_Color', 'Color', 'hue:0210:1:bulb1:color'])
+
+        // 6. Execute it -> returns a WorkspaceEdit appending the item to lamps.items.
+        const exec = await client.request(7, 'workspace/executeCommand', {
+            command: 'openhab.createItemFromChannel',
+            arguments: ['Hue_0210_1_Bulb1_Color', 'Color', 'hue:0210:1:bulb1:color'],
+        })
+        const edit = exec.result.edit
+        assert.ok(edit.changes[itemsUri], `expected edit for ${itemsUri}, got ${JSON.stringify(exec.result)}`)
+        const change = edit.changes[itemsUri][0]
+        assert.ok(change.newText.includes('Color Hue_0210_1_Bulb1_Color'))
+        assert.ok(change.newText.includes('channel="hue:0210:1:bulb1:color"'))
     } finally {
         client.child.kill()
         server.close()

@@ -189,6 +189,11 @@ class Server {
 
     initialize(params) {
         this.initializeParams = params
+        // `connection.client.capabilities` is NOT populated by
+        // vscode-languageserver 7.0 (the RemoteClientImpl.initialize() is a
+        // no-op), so read the client capabilities from the initialize params
+        // — same object, and always present.
+        this.clientCapabilities = params.capabilities || {}
         this.settings = resolveSettings(params.initializationOptions)
         return {
             capabilities: {
@@ -236,7 +241,7 @@ class Server {
      * client cannot answer, so the caller keeps initializationOptions.
      */
     async readClientConfiguration() {
-        const capabilities = this.connection.client.capabilities || {}
+        const capabilities = this.clientCapabilities || this.connection.client.capabilities || {}
         if (!capabilities.workspace?.configuration) {
             return undefined
         }
@@ -533,15 +538,29 @@ class Server {
     /**
      * Ask the client to re-pull inlay hints and semantic tokens for all open
      * openHAB documents. Called when the live item cache changes (event
-     * stream), so hints follow state updates without an edit.
+     * stream), so hints follow state changes without an edit.
+     *
+     * Note the capability path: LSP puts `refreshSupport` on the *workspace*
+     * capabilities (`workspace.inlayHint.refreshSupport`,
+     * `workspace.semanticTokens.refreshSupport`) — `textDocument.inlayHint`
+     * only has `resolveSupport`/`dynamicRegistration`. Zed advertises both
+     * workspace refresh supports as true.
      */
     refreshClientFeatures() {
-        const caps = this.connection?.client?.capabilities || {}
-        if (caps.textDocument?.inlayHint?.refreshSupport) {
+        // Read from initialize params (see initialize()); fall back to the
+        // connection's client object for libraries that do populate it.
+        const caps = this.clientCapabilities || this.connection?.client?.capabilities || {}
+        let sent = 0
+        if (caps.workspace?.inlayHint?.refreshSupport) {
             this.connection?.sendRequest('workspace/inlayHint/refresh').catch(() => {})
+            sent += 1
         }
-        if (caps.textDocument?.semanticTokens?.refreshSupport) {
+        if (caps.workspace?.semanticTokens?.refreshSupport) {
             this.connection?.sendRequest('workspace/semanticTokens/refresh').catch(() => {})
+            sent += 1
+        }
+        if (sent) {
+            this.log(`item cache changed; requested client refresh (${sent})`)
         }
     }
 

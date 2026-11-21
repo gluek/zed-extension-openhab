@@ -17,6 +17,7 @@ const SERVER = path.join(__dirname, '..', 'openhab-language-server.js')
 
 /** Minimal openHAB stand-in: item list plus an event stream that stays open. */
 function startFakeOpenHAB(items) {
+    const streams = [] // open SSE response objects, so tests can push events
     const server = http.createServer((req, res) => {
         if (req.url.startsWith('/rest/items')) {
             res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -47,7 +48,13 @@ function startFakeOpenHAB(items) {
         }
         if (req.url.startsWith('/rest/events')) {
             res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-            // Keep the connection open like openHAB does.
+            // flushHeaders matters: Node buffers the response headers until the
+            // first body write, and fetch waits for headers — without this the
+            // client's fetch never resolves and the stream is never registered.
+            res.flushHeaders()
+            // Keep the connection open like openHAB does; remember the stream
+            // so tests can push SSE events through it.
+            streams.push(res)
             req.on('close', () => res.end())
             return
         }
@@ -55,7 +62,19 @@ function startFakeOpenHAB(items) {
         res.end()
     })
     return new Promise((resolve) => {
-        server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }))
+        server.listen(0, '127.0.0.1', () =>
+            resolve({
+                server,
+                port: server.address().port,
+                /** Push one SSE event to all connected streams. */
+                pushEvent: (topic, type, payload) => {
+                    const line = `data: ${JSON.stringify({ topic, type, payload: JSON.stringify(payload) })}\n\n`
+                    for (const res of streams) {
+                        res.write(line)
+                    }
+                },
+            }),
+        )
     })
 }
 
@@ -370,10 +389,11 @@ test('serves inlay hints and semantic tokens for item names over stdio', async (
         path.join(dir, 'demo.rules'),
         'rule "x"\nwhen\n    Item Kitchen_Light changed\nthen\n    Kitchen_Light.sendCommand(ON)\nend\n',
     )
-    const { server, port } = await startFakeOpenHAB([
+    const fake = await startFakeOpenHAB([
         { name: 'Kitchen_Light', type: 'Switch', state: 'ON', tags: [], groupNames: [] },
         { name: 'gAll', type: 'Group', state: 'OFF', tags: [], groupNames: [] },
     ])
+    const { server, port } = fake
     const client = startClient(port)
     const rulesUri = 'file://' + path.join(dir, 'demo.rules')
     const itemsUri = 'file://' + path.join(dir, 'lamps.items')
@@ -384,7 +404,8 @@ test('serves inlay hints and semantic tokens for item names over stdio', async (
             rootUri: 'file://' + dir,
             workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
             capabilities: {
-                textDocument: {
+                workspace: {
+                    // Zed advertises refresh support at the *workspace* level.
                     inlayHint: { refreshSupport: true },
                     semanticTokens: { refreshSupport: true },
                 },
@@ -464,6 +485,23 @@ test('serves inlay hints and semantic tokens for item names over stdio', async (
             '0:46 len=4 type=0 mod=0', // gAll group ref
             '1:6 len=4 type=1 mod=1', // gAll definition on line 1
         ])
+
+        // 5. Live update: push an SSE state event; the server must send
+        // workspace/inlayHint/refresh (client advertised refreshSupport at
+        // the *workspace* level, like Zed does), and a re-pull must show OFF.
+        const refreshBefore = client.notifications.filter((n) => n.method === 'workspace/inlayHint/refresh').length
+        fake.pushEvent('openhab/items/Kitchen_Light/statechanged', 'ItemStateChangedEvent', { type: 'OnOff', value: 'OFF' })
+        await new Promise((resolve) => setTimeout(resolve, 400))
+        const refreshAfter = client.notifications.filter((n) => n.method === 'workspace/inlayHint/refresh').length
+        assert.ok(refreshAfter > refreshBefore, 'expected workspace/inlayHint/refresh after the SSE event')
+        const hints2 = await client.request(6, 'textDocument/inlayHint', {
+            textDocument: { uri: rulesUri },
+            range: { start: { line: 0, character: 0 }, end: { line: 5, character: 0 } },
+        })
+        assert.deepStrictEqual(
+            hints2.result.map((h) => `${h.position.line}:${h.position.character}:${h.label}`),
+            ['2:22: OFF', '4:17: OFF'],
+        )
     } finally {
         client.child.kill()
         server.close()

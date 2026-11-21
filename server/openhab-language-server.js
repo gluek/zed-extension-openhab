@@ -9013,6 +9013,7 @@ var require_Server = __commonJS({
       }
       initialize(params) {
         this.initializeParams = params;
+        this.clientCapabilities = params.capabilities || {};
         this.settings = resolveSettings(params.initializationOptions);
         return {
           capabilities: {
@@ -9055,7 +9056,7 @@ var require_Server = __commonJS({
        * client cannot answer, so the caller keeps initializationOptions.
        */
       async readClientConfiguration() {
-        const capabilities = this.connection.client.capabilities || {};
+        const capabilities = this.clientCapabilities || this.connection.client.capabilities || {};
         if (!capabilities.workspace?.configuration) {
           return void 0;
         }
@@ -9338,17 +9339,29 @@ var require_Server = __commonJS({
       /**
        * Ask the client to re-pull inlay hints and semantic tokens for all open
        * openHAB documents. Called when the live item cache changes (event
-       * stream), so hints follow state updates without an edit.
+       * stream), so hints follow state changes without an edit.
+       *
+       * Note the capability path: LSP puts `refreshSupport` on the *workspace*
+       * capabilities (`workspace.inlayHint.refreshSupport`,
+       * `workspace.semanticTokens.refreshSupport`) — `textDocument.inlayHint`
+       * only has `resolveSupport`/`dynamicRegistration`. Zed advertises both
+       * workspace refresh supports as true.
        */
       refreshClientFeatures() {
-        const caps = this.connection?.client?.capabilities || {};
-        if (caps.textDocument?.inlayHint?.refreshSupport) {
+        const caps = this.clientCapabilities || this.connection?.client?.capabilities || {};
+        let sent = 0;
+        if (caps.workspace?.inlayHint?.refreshSupport) {
           this.connection?.sendRequest("workspace/inlayHint/refresh").catch(() => {
           });
+          sent += 1;
         }
-        if (caps.textDocument?.semanticTokens?.refreshSupport) {
+        if (caps.workspace?.semanticTokens?.refreshSupport) {
           this.connection?.sendRequest("workspace/semanticTokens/refresh").catch(() => {
           });
+          sent += 1;
+        }
+        if (sent) {
+          this.log(`item cache changed; requested client refresh (${sent})`);
         }
       }
       /**

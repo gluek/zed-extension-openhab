@@ -90,8 +90,11 @@ These are deliberate; see the comments in `src/` for the reasoning.
   current state after every item-name occurrence in openHAB files
   (`src/itemPositions.js` finds the occurrences; only items present in the live
   cache get a hint). When the event stream changes an item, the server asks the
-  client to refresh (`workspace/inlayHint/refresh`, guarded by the client's
-  `refreshSupport` capability), so hints follow state changes without an edit.
+  client to refresh (`workspace/inlayHint/refresh`, guarded by
+  `workspace.inlayHint.refreshSupport` read from the **initialize params** —
+  vscode-languageserver 7.0 never populates `connection.client.capabilities`,
+  so reading it there silently no-ops), so hints follow state changes without
+  an edit.
 - **Semantic tokens (B4).** `textDocument/semanticTokens/full` marks item
   references as `variable` and `.items` definition names as `property` +
   `declaration`, so Zed colors them differently from locals/keywords. Built

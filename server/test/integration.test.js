@@ -32,6 +32,19 @@ function startFakeOpenHAB(items) {
             ]))
             return
         }
+        if (req.url.startsWith('/rest/things')) {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify([
+                {
+                    UID: 'hue:0210:1:bulb1',
+                    channels: [
+                        { uid: 'hue:0210:1:bulb1:color', label: 'Color', itemType: 'Color' },
+                        { uid: 'hue:0210:1:bulb1:brightness', label: 'Brightness', itemType: 'Dimmer' },
+                    ],
+                },
+            ]))
+            return
+        }
         if (req.url.startsWith('/rest/events')) {
             res.writeHead(200, { 'Content-Type': 'text/event-stream' })
             // Keep the connection open like openHAB does.
@@ -346,6 +359,53 @@ test('offers thing-type completions in a .things file end to end', async () => {
             position: { line: 0, character: 30 },
         })
         assert.deepStrictEqual(none.result.items, [])
+    } finally {
+        client.child.kill()
+        server.close()
+    }
+})
+
+test('offers channel UID completions inside channel="…" in .items end to end', async () => {
+    const { server, port } = await startFakeOpenHAB([])
+    const client = startClient(port)
+    try {
+        await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: null,
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        const uri = 'file:///tmp/demo.items'
+        const text = 'Switch Kitchen_Light "K" { channel="hue:0210:1:bulb1:\n'
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: { textDocument: { uri, languageId: 'openhab', version: 1, text } },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        const response = await client.request(2, 'textDocument/completion', {
+            textDocument: { uri },
+            position: { line: 0, character: text.length },
+        })
+        assert.deepStrictEqual(
+            response.result.items.map((i) => i.label).sort(),
+            ['hue:0210:1:bulb1:brightness', 'hue:0210:1:bulb1:color'],
+        )
+
+        // Outside channel="…" (in the label string): no channel completions.
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: { textDocument: { uri, version: 2 }, contentChanges: [{ text: 'Switch Kitchen_Light "hue:0210\n' }] },
+        })
+        const none = await client.request(3, 'textDocument/completion', {
+            textDocument: { uri },
+            position: { line: 0, character: 30 },
+        })
+        assert.ok(!none.result.items.some((i) => i.label.includes('bulb1')))
     } finally {
         client.child.kill()
         server.close()

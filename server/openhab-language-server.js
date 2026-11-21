@@ -7851,6 +7851,21 @@ var require_completion = __commonJS({
       return /^\s*(?:Thing|Bridge)\s+[A-Za-z0-9_:\-]*$/.test(context.before);
     }
     var KIND_MODULE = 9;
+    var KIND_FIELD = 5;
+    function isChannelValuePosition(extension, context) {
+      if (extension !== "items") {
+        return false;
+      }
+      return /\bchannel\s*=\s*"[^"]*$/.test(context.before);
+    }
+    function channelCompletions(partial, allChannels) {
+      return allChannels.filter((ch) => ch.uid.startsWith(partial) || ch.uid.includes(":" + partial)).map((ch) => ({
+        label: ch.uid,
+        kind: KIND_FIELD,
+        detail: ch.label || ch.thingUID,
+        ...ch.itemType ? { documentation: `item type: ${ch.itemType}` } : {}
+      }));
+    }
     function thingUidCompletions(partial, bindingIds, uidsForBinding) {
       const items = [];
       if (!partial.includes(":")) {
@@ -7905,8 +7920,10 @@ var require_completion = __commonJS({
     module2.exports = {
       ITEM_TYPES,
       contextAt,
+      channelCompletions,
       documentationFor,
       inStringOrComment,
+      isChannelValuePosition,
       isItemTypePosition,
       isThingUidPosition,
       itemCompletions,
@@ -8416,6 +8433,156 @@ var require_thingTypes = __commonJS({
   }
 });
 
+// src/things.js
+var require_things = __commonJS({
+  "src/things.js"(exports2, module2) {
+    "use strict";
+    var { normalizeBaseUrl } = require_ItemStore();
+    var REFETCH_DEBOUNCE_MS = 1e3;
+    var THING_TOPICS = "smarthome/things/*,openhab/things/*";
+    var ThingStore = class {
+      /**
+       * @param {object} options
+       * @param {(message: string) => void} [options.log]
+       * @param {(config: object) => {baseUrl: string, authHeaders: object}} [options.rest]
+       */
+      constructor({ log = () => {
+      }, rest } = {}) {
+        this.log = log;
+        this.rest = rest || defaultRest;
+        this.channelsByThing = /* @__PURE__ */ new Map();
+        this.stopped = true;
+        this.abortController = void 0;
+        this.refetchTimer = void 0;
+      }
+      /**
+       * @param {{host: string, port: number, authToken?: string|null, basicAuth?: object|null}} config
+       */
+      async start(config) {
+        this.config = config;
+        this.stopped = false;
+        await this.load();
+        this.listen();
+      }
+      stop() {
+        this.stopped = true;
+        this.abortController?.abort();
+        this.abortController = void 0;
+        if (this.refetchTimer) {
+          clearTimeout(this.refetchTimer);
+          this.refetchTimer = void 0;
+        }
+      }
+      get baseUrl() {
+        return `${normalizeBaseUrl(this.config.host, this.config.port)}/rest`;
+      }
+      get authHeaders() {
+        const { authToken, basicAuth } = this.config;
+        if (authToken) {
+          return { Authorization: `Bearer ${authToken}` };
+        }
+        if (basicAuth && basicAuth.username) {
+          return {
+            Authorization: "Basic " + Buffer.from(`${basicAuth.username}:${basicAuth.password || ""}`).toString("base64")
+          };
+        }
+        return {};
+      }
+      /** Fetch all things and index their channels. Never throws. */
+      async load() {
+        try {
+          const response = await fetch(`${this.baseUrl}/things`, { headers: this.authHeaders });
+          if (!response.ok) {
+            throw new Error(`status ${response.status}`);
+          }
+          const things = await response.json();
+          if (!Array.isArray(things)) {
+            throw new Error("no thing array");
+          }
+          this.channelsByThing.clear();
+          for (const thing of things) {
+            if (thing.UID && Array.isArray(thing.channels)) {
+              this.channelsByThing.set(thing.UID, thing.channels);
+            }
+          }
+          this.log(`loaded channels of ${this.channelsByThing.size} things`);
+        } catch (error) {
+          this.log(`cannot load things (${error.message}); channel completion limited`);
+        }
+      }
+      /** Subscribe to thing events; refetch the list (debounced) on any event. */
+      async listen() {
+        this.abortController = new AbortController();
+        try {
+          const response = await fetch(`${this.baseUrl}/events?topics=${THING_TOPICS}`, {
+            headers: { ...this.authHeaders, Accept: "text/event-stream" },
+            signal: this.abortController.signal
+          });
+          if (!response.ok || !response.body) {
+            throw new Error(`status ${response.status}`);
+          }
+          const decoder = new TextDecoder();
+          for await (const chunk of response.body) {
+            if (this.stopped) {
+              return;
+            }
+            for (const line of decoder.decode(chunk).split("\n")) {
+              if (line.startsWith("data:")) {
+                this.scheduleRefetch();
+                break;
+              }
+            }
+          }
+        } catch (error) {
+          if (this.stopped || error.name === "AbortError") {
+            return;
+          }
+          this.log(`thing event stream ended (${error.message})`);
+        }
+        if (!this.stopped) {
+          this.scheduleRefetch();
+        }
+      }
+      scheduleRefetch() {
+        if (this.stopped || this.refetchTimer) {
+          return;
+        }
+        this.refetchTimer = setTimeout(() => {
+          this.refetchTimer = void 0;
+          if (!this.stopped) {
+            this.load().then(() => this.listen());
+          }
+        }, REFETCH_DEBOUNCE_MS);
+        this.refetchTimer.unref?.();
+      }
+      /**
+       * All channel UIDs (`thingUID:channelId`) across all things, sorted.
+       * @returns {Array<{uid: string, thingUID: string, label?: string, itemType?: string}>}
+       */
+      get allChannels() {
+        const out = [];
+        for (const [thingUID, channels] of this.channelsByThing) {
+          for (const ch of channels) {
+            out.push({ uid: ch.uid, thingUID, label: ch.label, itemType: ch.itemType });
+          }
+        }
+        return out.sort((a, b) => a.uid.localeCompare(b.uid));
+      }
+      /** Channel UIDs of one thing, e.g. for `channel="hue:0210:1:bulb1:…"`. */
+      channelsOf(thingUID) {
+        return this.channelsByThing.get(thingUID) || [];
+      }
+    };
+    function defaultRest(config) {
+      return {
+        baseUrl: `${normalizeBaseUrl(config.host, config.port)}/rest`,
+        authHeaders: {}
+      };
+    }
+    module2.exports = { ThingStore, THING_TOPICS };
+  }
+});
+
 // src/Server.js
 var require_Server = __commonJS({
   "src/Server.js"(exports2, module2) {
@@ -8436,6 +8603,7 @@ var require_Server = __commonJS({
     var { ItemIndex, NAME_RE } = require_itemIndex();
     var { findReferencesInWorktree } = require_references();
     var { ThingTypeStore } = require_thingTypes();
+    var { ThingStore } = require_things();
     var DEFAULT_SETTINGS = {
       host: "localhost",
       port: 8080,
@@ -8459,6 +8627,7 @@ var require_Server = __commonJS({
         this.settings = { ...DEFAULT_SETTINGS };
         this.store = new ItemStore({ log: (message) => this.log(message) });
         this.thingTypes = new ThingTypeStore({ log: (message) => this.log(message) });
+        this.things = new ThingStore({ log: (message) => this.log(message) });
         this.connection.onInitialize(this.initialize.bind(this));
         this.connection.onInitialized(this.initialized.bind(this));
         this.connection.onExit(this.exit.bind(this));
@@ -8554,6 +8723,7 @@ var require_Server = __commonJS({
         });
         await this.store.restart(this.settings);
         await this.thingTypes.load(this.settings);
+        await this.things.start(this.settings);
       }
       /**
        * Ask the client for the `openhab` section. Returns `undefined` when the
@@ -8588,6 +8758,8 @@ var require_Server = __commonJS({
         if (reconnected) {
           await this.store.restart(this.settings);
           await this.thingTypes.load(this.settings);
+          this.things.stop();
+          await this.things.start(this.settings);
         }
       }
       /** Completion scoped to the positions where openHAB accepts item names. */
@@ -8600,6 +8772,13 @@ var require_Server = __commonJS({
         const context = completion.contextAt(document.getText(), params.position);
         if (completion.isItemTypePosition(extension, context)) {
           return { isIncomplete: false, items: completion.typeCompletions() };
+        }
+        if (completion.isChannelValuePosition(extension, context)) {
+          const partial = /\bchannel\s*=\s*"([^"]*)$/.exec(context.before)[1];
+          return {
+            isIncomplete: false,
+            items: completion.channelCompletions(partial, this.things.allChannels)
+          };
         }
         if (completion.isThingUidPosition(extension, context)) {
           const partial = /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before)[1];
@@ -8774,6 +8953,7 @@ var require_Server = __commonJS({
       }
       exit() {
         this.store.stop();
+        this.things.stop();
       }
     };
     module2.exports = Server2;

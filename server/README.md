@@ -76,6 +76,10 @@ These are deliberate; see the comments in `src/` for the reasoning.
   `GET /rest/thing-types` at startup (and on connection-setting changes) and
   offers binding IDs after `Thing `/`Bridge ` with no `:` yet, or the binding's
   thing-type UIDs after `hue:` etc. (`src/thingTypes.js`).
+- **Channel completion in `.items`.** `GET /rest/things` is fetched at startup
+  and kept current via the `openhab/things/*` (openHAB 4) / `smarthome/things/*`
+  (openHAB 3) event stream with a debounced refetch (`src/things.js`). Inside
+  `channel="…"` the completion offers real channel UIDs of your things.
 - **Navigation (go-to-definition / references / rename).** The server scans the
   worktree's `.items` files into a definition index (`src/itemIndex.js`,
   refreshed on `workspace/didChangeWatchedFiles`) and finds references

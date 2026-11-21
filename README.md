@@ -22,6 +22,8 @@ It provides:
   `editor: go to definition` / `editor: find all references` / rename commands.
 - **Thing-type completion** in `.things` files: binding IDs and thing-type
   UIDs from your openHAB instance's `/rest/thing-types`.
+- **Channel completion** in `.items` files: inside `channel="…"`, offer the
+  channel UIDs of your things (from `/rest/things`, kept live via events).
 
 ## Supported files
 

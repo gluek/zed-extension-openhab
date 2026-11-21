@@ -36,6 +36,7 @@ const { extensionOf } = require('./files')
 const { ItemIndex, NAME_RE } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
 const { ThingTypeStore } = require('./thingTypes')
+const { ThingStore } = require('./things')
 
 const DEFAULT_SETTINGS = {
     host: 'localhost',
@@ -74,6 +75,7 @@ class Server {
         this.settings = { ...DEFAULT_SETTINGS }
         this.store = new ItemStore({ log: (message) => this.log(message) })
         this.thingTypes = new ThingTypeStore({ log: (message) => this.log(message) })
+        this.things = new ThingStore({ log: (message) => this.log(message) })
 
         this.connection.onInitialize(this.initialize.bind(this))
         this.connection.onInitialized(this.initialized.bind(this))
@@ -186,6 +188,7 @@ class Server {
         })
         await this.store.restart(this.settings)
         await this.thingTypes.load(this.settings)
+        await this.things.start(this.settings)
     }
 
     /**
@@ -224,6 +227,8 @@ class Server {
         if (reconnected) {
             await this.store.restart(this.settings)
             await this.thingTypes.load(this.settings)
+            this.things.stop()
+            await this.things.start(this.settings)
         }
     }
 
@@ -238,6 +243,14 @@ class Server {
 
         if (completion.isItemTypePosition(extension, context)) {
             return { isIncomplete: false, items: completion.typeCompletions() }
+        }
+        // `.items`: channel="…" value completion.
+        if (completion.isChannelValuePosition(extension, context)) {
+            const partial = /\bchannel\s*=\s*"([^"]*)$/.exec(context.before)[1]
+            return {
+                isIncomplete: false,
+                items: completion.channelCompletions(partial, this.things.allChannels),
+            }
         }
         // `.things`: thing-type UID completion after `Thing `/`Bridge `.
         if (completion.isThingUidPosition(extension, context)) {
@@ -419,6 +432,7 @@ class Server {
 
     exit() {
         this.store.stop()
+        this.things.stop()
     }
 }
 

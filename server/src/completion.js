@@ -117,6 +117,43 @@ function isThingUidPosition(extension, context) {
 /** LSP CompletionItemKind.Module */
 const KIND_MODULE = 9
 
+/** LSP CompletionItemKind.Field */
+const KIND_FIELD = 5
+
+/**
+ * True when the cursor is inside the quoted value of `channel="…"` in an
+ * `.items` file (the only place channel UIDs are written).
+ *
+ * @param {string} extension
+ * @param {{before: string}} context from `contextAt`
+ */
+function isChannelValuePosition(extension, context) {
+    if (extension !== 'items') {
+        return false
+    }
+    // `channel="` prefix with the string still open (no closing quote yet).
+    return /\bchannel\s*=\s*"[^"]*$/.test(context.before)
+}
+
+/**
+ * Completions for the channel UID value. The partial may be a full thing UID
+ * prefix (`hue:0210:1:bulb1:`) or just a channel id suffix; in both cases we
+ * offer matching channel UIDs of known things.
+ *
+ * @param {string} partial typed text inside the quotes
+ * @param {Array<{uid: string, thingUID: string, label?: string, itemType?: string}>} allChannels
+ */
+function channelCompletions(partial, allChannels) {
+    return allChannels
+        .filter((ch) => ch.uid.startsWith(partial) || ch.uid.includes(':' + partial))
+        .map((ch) => ({
+            label: ch.uid,
+            kind: KIND_FIELD,
+            detail: ch.label || ch.thingUID,
+            ...(ch.itemType ? { documentation: `item type: ${ch.itemType}` } : {}),
+        }))
+}
+
 /**
  * Completions for the thing-UID position: binding IDs when no `:` has been
  * typed yet, otherwise the thing-type UIDs of that binding.
@@ -193,8 +230,10 @@ function typeCompletions() {
 module.exports = {
     ITEM_TYPES,
     contextAt,
+    channelCompletions,
     documentationFor,
     inStringOrComment,
+    isChannelValuePosition,
     isItemTypePosition,
     isThingUidPosition,
     itemCompletions,

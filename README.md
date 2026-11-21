@@ -37,9 +37,15 @@ It provides:
   and DSL keywords.
 - **Code actions** (via `editor: code actions`): *Send ON/OFF/… to item* on an
   item name in `.rules`/`.script`/`.sitemap` (POSTs to the running instance),
-  *Run rule* on a `rule "…"` header (POST `/rest/rules/{id}/run`), and *Create
-  item from channel* on a `channel="…"` line in `.items` (inserts a linked
-  item definition).
+  *Run rule* on a `rule "…"` header (POST `/rest/rules/{uid}/runnow`), and
+  *Create item from channel* on a `channel="…"` line in `.items` (inserts a
+  linked item definition).
+- **Icon and tag completion** in `.items`: inside `<…>` after the label, offer
+  openHAB's classic icon keywords plus Iconify set prefixes (`mdi:`, …);
+  inside `["…"]` of the tag list, offer the [semantic ontology
+  tags](https://www.openhab.org/docs/tutorial/model.html) (`Point`,
+  `Measurement`, `Lighting`-style project tags from your other `.items`
+  files, …).
 
 ## Supported files
 

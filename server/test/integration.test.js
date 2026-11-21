@@ -650,6 +650,79 @@ test('code actions: sendCommand, runRule, createItemFromChannel over stdio', asy
     }
 })
 
+test('offers icon and semantic-tag completions in a .items file over stdio', async () => {
+    const dir = makeWorktree()
+    fs.writeFileSync(
+        path.join(dir, 'lamps.items'),
+        'Switch Kitchen_Light "Kitchen Light" <light> ["Lighting", "GroundFloor"]\nGroup gAll "All"\n',
+    )
+    const { server, port } = await startFakeOpenHAB([])
+    const client = startClient(port)
+    const itemsUri = 'file://' + path.join(dir, 'lamps.items')
+
+    try {
+        await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: 'file://' + dir,
+            workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        const text = 'Switch New_Light "New" <li\n'
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: { textDocument: { uri: itemsUri, languageId: 'openhab', version: 1, text } },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 400))
+
+        // 1. Inside <li…>: icon completions.
+        const iconRes = await client.request(2, 'textDocument/completion', {
+            textDocument: { uri: itemsUri },
+            position: { line: 0, character: text.length },
+        })
+        const iconLabels = iconRes.result.items.map((i) => i.label)
+        assert.ok(iconLabels.includes('light'), `expected 'light' in ${iconLabels}`)
+        assert.ok(iconLabels.includes('lightbulb'))
+        assert.ok(!iconLabels.includes('door'))
+
+        // 2. Inside ["Li…"] on the existing line: ontology tags + project tags.
+        const tagText = 'Switch Kitchen_Light "Kitchen Light" <light> ["Li\n'
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: { textDocument: { uri: itemsUri, version: 2 }, contentChanges: [{ text: tagText }] },
+        })
+        const tagRes = await client.request(3, 'textDocument/completion', {
+            textDocument: { uri: itemsUri },
+            position: { line: 0, character: tagText.length },
+        })
+        const tagLabels = tagRes.result.items.map((i) => i.label)
+        assert.ok(tagLabels.includes('Light'), `expected ontology 'Light' in ${tagLabels}`)
+        // Project-local tags come from the on-disk lamps.items (Lighting, GroundFloor).
+        assert.ok(tagLabels.includes('Lighting'), `expected project tag 'Lighting' in ${tagLabels}`)
+
+        // 3. Inside the label string: no tag completions.
+        const labelText = 'Switch Kitchen_Light "Li\n'
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: { textDocument: { uri: itemsUri, version: 3 }, contentChanges: [{ text: labelText }] },
+        })
+        const labelRes = await client.request(4, 'textDocument/completion', {
+            textDocument: { uri: itemsUri },
+            position: { line: 0, character: labelText.length },
+        })
+        assert.ok(!labelRes.result.items.some((i) => i.label === 'Lighting' || i.label === 'Light'))
+    } finally {
+        client.child.kill()
+        server.close()
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
 test('offers thing-type completions in a .things file end to end', async () => {
     const { server, port } = await startFakeOpenHAB([])
     const client = startClient(port)

@@ -113,6 +113,15 @@ These are deliberate; see the comments in `src/` for the reasoning.
   `apply_code_action` applies action edits but ignores executeCommand
   *results*. The commands are advertised in `executeCommandProvider.commands`,
   which Zed requires before executing.
+- **Icon + semantic-tag completion in `.items` (B10/B11).**
+  `src/icons.js` bundles the classic OH icon set (plus Iconify prefixes
+  `mdi:`/`fa-solid:`/…) for the `<icon>` clause and the semantic-ontology tag
+  list (`Equipment`, `Point`, `Measurement`, `Temperature`, `Lightbulb`, …)
+  for the `["…"]` tag list. Position detection requires the label string (and
+  optionally the icon) before the bracket, so the label and Location config
+  don't trigger tag completion. Project-local tags are collected from the
+  worktree's `.items` files (rescanned on `didChangeWatchedFiles`) and offered
+  first.
 - **Navigation (go-to-definition / references / rename).** The server scans the
   worktree's `.items` files into a definition index (`src/itemIndex.js`,
   refreshed on `workspace/didChangeWatchedFiles`) and finds references

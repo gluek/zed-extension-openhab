@@ -36,6 +36,7 @@ const ItemStore = require('./ItemStore')
 const completion = require('./completion')
 const hover = require('./hover')
 const { extensionOf, OPENHAB_EXTENSIONS } = require('./files')
+const icons = require('./icons')
 const { codeActionsAt } = require('./codeActions')
 const { findUnknownItemRefs } = require('./diagnostics')
 const { findItemPositions } = require('./itemPositions')
@@ -134,13 +135,15 @@ class Server {
         // lazily on first use and refreshed on watched-file events.
         this.index = null
         this.connection.onDidChangeWatchedFiles((params) => {
-            if (!this.index) {
-                return
-            }
+            let tagsDirty = false
             for (const change of params.changes) {
                 if (change.uri.endsWith('.items')) {
-                    this.index.refresh(fileURLToPath(change.uri))
+                    this.index?.refresh(fileURLToPath(change.uri))
+                    tagsDirty = true
                 }
+            }
+            if (tagsDirty) {
+                this.rescanUsedTags()
             }
         })
 
@@ -168,7 +171,7 @@ class Server {
         return null
     }
 
-    /** Lazily create and scan the definition index. */
+    /** Lazily create and scan the definition index (and the used-tag set). */
     getIndex() {
         if (!this.index) {
             const rootDir = this.rootDir
@@ -178,6 +181,7 @@ class Server {
             this.index = new ItemIndex({ rootDir })
             this.index.scan()
             this.log(`indexed ${this.index.size} item definitions under ${rootDir}`)
+            this.rescanUsedTags()
         }
         return this.index
     }
@@ -306,6 +310,22 @@ class Server {
             return {
                 isIncomplete: false,
                 items: completion.channelCompletions(partial, this.things.allChannels),
+            }
+        }
+        // `.items`: `<icon>` clause completion (B10).
+        if (icons.isIconPosition(extension, context)) {
+            const partial = /<([^>]*)$/.exec(context.before)[1]
+            return { isIncomplete: false, items: icons.iconCompletions(partial) }
+        }
+        // `.items`: `["…"]` semantic-tag completion (B11), plus tags already
+        // used in the worktree's .items files.
+        if (icons.isTagPosition(extension, context)) {
+            const partial = /\[[^\]=]*"([^"]*)$/.exec(context.before)[1]
+            // Make sure the project-local tag set is scanned before use.
+            this.getIndex()
+            return {
+                isIncomplete: false,
+                items: icons.tagCompletions(partial, this.usedTags()),
             }
         }
         // `.things`: thing-type UID completion after `Thing `/`Bridge `.
@@ -667,6 +687,64 @@ class Server {
                 // ignores executeCommand results when applying a picked action).
                 return null
         }
+    }
+
+    /**
+     * Semantic tags already used in the worktree's `.items` files (scanned
+     * once, cached, refreshed on watched-file events). Offered before the
+     * built-in ontology list so project-local tags complete first.
+     */
+    usedTags() {
+        if (!this._usedTags) {
+            this._usedTags = new Set()
+        }
+        return [...this._usedTags]
+    }
+
+    /** (Re)scan the worktree's .items files for `["…"]` tag values. */
+    rescanUsedTags() {
+        const rootDir = this.rootDir
+        if (!rootDir) {
+            return
+        }
+        const tags = new Set()
+        const { collectItemsFiles } = require('./itemIndex')
+        const { collectSourceFiles } = require('./references')
+        const fs = require('node:fs')
+        const TAG_LIST_RE = /\[[^\]]*\]/g
+        const STRING_RE = /"([^"]*)"|'([^']*)'/g
+        for (const file of [...collectItemsFiles(rootDir), ...collectSourceFiles(rootDir)]) {
+            if (!file.endsWith('.items')) {
+                continue
+            }
+            let text
+            try {
+                text = fs.readFileSync(file, 'utf8')
+            } catch {
+                continue
+            }
+            for (const line of text.split(/\r?\n/)) {
+                // Only the tag list after the icon/label, i.e. a [ … ] that
+                // follows a `"label"` on the same line; skip Location config
+                // (`[ latitude=… ]` has `=` inside).
+                TAG_LIST_RE.lastIndex = 0
+                let m
+                while ((m = TAG_LIST_RE.exec(line)) !== null) {
+                    if (m[0].includes('=')) {
+                        continue // Location config, not tags
+                    }
+                    STRING_RE.lastIndex = 0
+                    let s
+                    while ((s = STRING_RE.exec(m[0])) !== null) {
+                        const tag = s[1] ?? s[2]
+                        if (tag) {
+                            tags.add(tag)
+                        }
+                    }
+                }
+            }
+        }
+        this._usedTags = tags
     }
 
     /**

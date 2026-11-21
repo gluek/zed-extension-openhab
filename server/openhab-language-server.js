@@ -7993,6 +7993,204 @@ var require_files2 = __commonJS({
   }
 });
 
+// src/icons.js
+var require_icons = __commonJS({
+  "src/icons.js"(exports2, module2) {
+    "use strict";
+    var OH_ICONS = [
+      "absorb",
+      "airconditioner",
+      "alarm",
+      "arrow_down",
+      "arrow_up",
+      "asterisk",
+      "attention",
+      "babyphone",
+      "bathtub",
+      "battery",
+      "bed",
+      "bicycle",
+      "blinds",
+      "bluetooth",
+      "boy",
+      "briefcase",
+      "calendar",
+      "car",
+      "cd",
+      "chart",
+      "clock",
+      "computer",
+      "contact",
+      "delete",
+      "door",
+      "downstairs",
+      "error",
+      "fan",
+      "female",
+      "fire",
+      "flower",
+      "garage",
+      "garbage",
+      "girl",
+      "group",
+      "heating",
+      "house",
+      "humidity",
+      "internet",
+      "key",
+      "light",
+      "lightbulb",
+      "lock",
+      "machine",
+      "male",
+      "message",
+      "motion",
+      "network",
+      "none",
+      "oh",
+      "office",
+      "oven",
+      "phone",
+      "presence",
+      "projector",
+      "receiver",
+      "refresh",
+      "rollershutter",
+      "screen",
+      "settings",
+      "siren",
+      "slider",
+      "smoke",
+      "solar",
+      "sound",
+      "sport",
+      "switch",
+      "table",
+      "temperature",
+      "time",
+      "tv",
+      "upstairs",
+      "video",
+      "washer",
+      "water",
+      "window",
+      "wind"
+    ];
+    var ICON_PREFIXES = ["mdi", "fa-solid", "fa-regular", "fa-brands", "wi", "smarthome", "oh"];
+    var SEMANTIC_TAGS = [
+      // Top-level classes
+      "Equipment",
+      "Point",
+      "Property",
+      "Location",
+      "Room",
+      // Point sub-types
+      "Measurement",
+      "Setpoint",
+      "Control",
+      // Common Property sub-types
+      "Temperature",
+      "Humidity",
+      "Light",
+      "Presence",
+      "Smoke",
+      "Noise",
+      "Vibration",
+      "Pressure",
+      "Wind",
+      "Rain",
+      "UV",
+      "OpenLevel",
+      "Alarm",
+      "LowBattery",
+      "Connectivity",
+      "Energy",
+      "Power",
+      "Current",
+      "Voltage",
+      "Frequency",
+      "Gas",
+      "Water",
+      "Color",
+      "Duration",
+      "Speed",
+      // Common Equipment sub-classes
+      "Lightbulb",
+      "Switch",
+      "Sensor",
+      "Door",
+      "Window",
+      "Lock",
+      "Blinds",
+      "Shutter",
+      "Thermostat",
+      "HVAC",
+      "Camera",
+      "Speaker",
+      "Battery",
+      "Charger",
+      "Vehicle",
+      "Cleaner",
+      "Doorbell",
+      "Fan",
+      "Inverter",
+      "Media",
+      "MotionSensor",
+      "NetworkDevice",
+      "PowerOutlet",
+      "Printer",
+      "Projector",
+      "Receiver",
+      "Router",
+      "Screen",
+      "SmartMeter",
+      "Siren",
+      "WeatherStation",
+      "WhiteGood"
+    ];
+    var KIND_KEYWORD = 14;
+    var KIND_ENUM_MEMBER = 20;
+    function isIconPosition(extension, context) {
+      if (extension !== "items") {
+        return false;
+      }
+      return /"[^"]*"\s*<[^>]*$/.test(context.before);
+    }
+    function isTagPosition(extension, context) {
+      if (extension !== "items") {
+        return false;
+      }
+      return /"[^"]*"(?:\s*<[^>]*>)?\s*\[[^\]=]*"[^"]*$/.test(context.before);
+    }
+    function iconCompletions(partial) {
+      const items = OH_ICONS.filter((icon) => icon.startsWith(partial.toLowerCase())).map((icon) => ({
+        label: icon,
+        kind: KIND_KEYWORD,
+        detail: "openHAB icon"
+      }));
+      for (const prefix of ICON_PREFIXES) {
+        if (prefix.startsWith(partial.toLowerCase()) && !prefix.includes(":")) {
+          items.push({ label: `${prefix}:`, kind: KIND_KEYWORD, detail: "iconify set" });
+        }
+      }
+      return items;
+    }
+    function tagCompletions(partial, extraTags = []) {
+      const seen = /* @__PURE__ */ new Set();
+      const items = [];
+      for (const tag of [...extraTags, ...SEMANTIC_TAGS]) {
+        if (seen.has(tag) || !tag.toLowerCase().startsWith(partial.toLowerCase())) {
+          continue;
+        }
+        seen.add(tag);
+        items.push({ label: tag, kind: KIND_ENUM_MEMBER, detail: "semantic tag" });
+      }
+      return items;
+    }
+    module2.exports = { OH_ICONS, ICON_PREFIXES, SEMANTIC_TAGS, isIconPosition, isTagPosition, iconCompletions, tagCompletions };
+  }
+});
+
 // src/itemIndex.js
 var require_itemIndex = __commonJS({
   "src/itemIndex.js"(exports2, module2) {
@@ -9043,6 +9241,7 @@ var require_Server = __commonJS({
     var completion = require_completion();
     var hover = require_hover();
     var { extensionOf, OPENHAB_EXTENSIONS } = require_files2();
+    var icons = require_icons();
     var { codeActionsAt } = require_codeActions();
     var { findUnknownItemRefs } = require_diagnostics();
     var { findItemPositions } = require_itemPositions();
@@ -9109,13 +9308,15 @@ var require_Server = __commonJS({
         });
         this.index = null;
         this.connection.onDidChangeWatchedFiles((params) => {
-          if (!this.index) {
-            return;
-          }
+          let tagsDirty = false;
           for (const change of params.changes) {
             if (change.uri.endsWith(".items")) {
-              this.index.refresh(fileURLToPath(change.uri));
+              this.index?.refresh(fileURLToPath(change.uri));
+              tagsDirty = true;
             }
+          }
+          if (tagsDirty) {
+            this.rescanUsedTags();
           }
         });
         this.connection.listen();
@@ -9138,7 +9339,7 @@ var require_Server = __commonJS({
         }
         return null;
       }
-      /** Lazily create and scan the definition index. */
+      /** Lazily create and scan the definition index (and the used-tag set). */
       getIndex() {
         if (!this.index) {
           const rootDir = this.rootDir;
@@ -9148,6 +9349,7 @@ var require_Server = __commonJS({
           this.index = new ItemIndex({ rootDir });
           this.index.scan();
           this.log(`indexed ${this.index.size} item definitions under ${rootDir}`);
+          this.rescanUsedTags();
         }
         return this.index;
       }
@@ -9259,6 +9461,18 @@ var require_Server = __commonJS({
           return {
             isIncomplete: false,
             items: completion.channelCompletions(partial, this.things.allChannels)
+          };
+        }
+        if (icons.isIconPosition(extension, context)) {
+          const partial = /<([^>]*)$/.exec(context.before)[1];
+          return { isIncomplete: false, items: icons.iconCompletions(partial) };
+        }
+        if (icons.isTagPosition(extension, context)) {
+          const partial = /\[[^\]=]*"([^"]*)$/.exec(context.before)[1];
+          this.getIndex();
+          return {
+            isIncomplete: false,
+            items: icons.tagCompletions(partial, this.usedTags())
           };
         }
         if (completion.isThingUidPosition(extension, context)) {
@@ -9599,6 +9813,59 @@ var require_Server = __commonJS({
           default:
             return null;
         }
+      }
+      /**
+       * Semantic tags already used in the worktree's `.items` files (scanned
+       * once, cached, refreshed on watched-file events). Offered before the
+       * built-in ontology list so project-local tags complete first.
+       */
+      usedTags() {
+        if (!this._usedTags) {
+          this._usedTags = /* @__PURE__ */ new Set();
+        }
+        return [...this._usedTags];
+      }
+      /** (Re)scan the worktree's .items files for `["…"]` tag values. */
+      rescanUsedTags() {
+        const rootDir = this.rootDir;
+        if (!rootDir) {
+          return;
+        }
+        const tags = /* @__PURE__ */ new Set();
+        const { collectItemsFiles } = require_itemIndex();
+        const { collectSourceFiles } = require_references();
+        const fs = require("node:fs");
+        const TAG_LIST_RE = /\[[^\]]*\]/g;
+        const STRING_RE = /"([^"]*)"|'([^']*)'/g;
+        for (const file of [...collectItemsFiles(rootDir), ...collectSourceFiles(rootDir)]) {
+          if (!file.endsWith(".items")) {
+            continue;
+          }
+          let text;
+          try {
+            text = fs.readFileSync(file, "utf8");
+          } catch {
+            continue;
+          }
+          for (const line of text.split(/\r?\n/)) {
+            TAG_LIST_RE.lastIndex = 0;
+            let m;
+            while ((m = TAG_LIST_RE.exec(line)) !== null) {
+              if (m[0].includes("=")) {
+                continue;
+              }
+              STRING_RE.lastIndex = 0;
+              let s;
+              while ((s = STRING_RE.exec(m[0])) !== null) {
+                const tag = s[1] ?? s[2];
+                if (tag) {
+                  tags.add(tag);
+                }
+              }
+            }
+          }
+        }
+        this._usedTags = tags;
       }
       /**
        * An item is "known" when it is defined in the worktree's .items files or

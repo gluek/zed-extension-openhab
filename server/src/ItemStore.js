@@ -57,9 +57,12 @@ class ItemStore {
     /**
      * @param {object} options
      * @param {(message: string) => void} [options.log] receives status messages
+     * @param {() => void} [options.onEvent] called after the cache changed via
+     *   an event (used to refresh inlay hints / semantic tokens)
      */
-    constructor({ log = () => {} } = {}) {
+    constructor({ log = () => {}, onEvent } = {}) {
         this.log = log
+        this.onEvent = onEvent
         this.items = new Map()
         this.config = undefined
         this.abortController = undefined
@@ -220,6 +223,7 @@ class ItemStore {
         if (!name) {
             return
         }
+        let changed = false
         switch (event.type) {
             case 'ItemStateEvent':
             case 'ItemStateChangedEvent': {
@@ -234,20 +238,27 @@ class ItemStore {
                 if (typeof next === 'object' && next.type) {
                     existing.type = next.type
                 }
+                changed = true
                 break
             }
             case 'ItemUpdatedEvent':
                 // [new, old]; only the new copy matters.
                 this.items.set(name, new Item(event.payload[0]))
+                changed = true
                 break
             case 'ItemAddedEvent':
                 this.items.set(name, new Item(event.payload))
+                changed = true
                 break
             case 'ItemRemovedEvent':
                 this.items.delete(name)
+                changed = true
                 break
             default:
                 break
+        }
+        if (changed) {
+            this.onEvent?.()
         }
     }
 

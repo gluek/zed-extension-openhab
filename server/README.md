@@ -86,6 +86,16 @@ These are deliberate; see the comments in `src/` for the reasoning.
   and kept current via the `openhab/things/*` (openHAB 4) / `smarthome/things/*`
   (openHAB 3) event stream with a debounced refetch (`src/things.js`). Inside
   `channel="…"` the completion offers real channel UIDs of your things.
+- **Inlay hints with live state (B3).** `textDocument/inlayHint` returns the
+  current state after every item-name occurrence in openHAB files
+  (`src/itemPositions.js` finds the occurrences; only items present in the live
+  cache get a hint). When the event stream changes an item, the server asks the
+  client to refresh (`workspace/inlayHint/refresh`, guarded by the client's
+  `refreshSupport` capability), so hints follow state changes without an edit.
+- **Semantic tokens (B4).** `textDocument/semanticTokens/full` marks item
+  references as `variable` and `.items` definition names as `property` +
+  `declaration`, so Zed colors them differently from locals/keywords. Built
+  with `SemanticTokensBuilder` (correct delta encoding).
 - **Navigation (go-to-definition / references / rename).** The server scans the
   worktree's `.items` files into a definition index (`src/itemIndex.js`,
   refreshed on `workspace/didChangeWatchedFiles`) and finds references

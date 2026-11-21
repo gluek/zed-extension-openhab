@@ -29,6 +29,12 @@ It provides:
   openHAB instance are underlined as warnings in `.rules`, `.script`,
   `.sitemap`, `.persist`, and group lists in `.items` — catches typos in rules
   that would otherwise silently never fire.
+- **Live-state inlay hints**: each item name in `.rules`, `.script`, `.items`,
+  `.sitemap`, and `.persist` shows its current state right after the name
+  (e.g. `Kitchen_Light  ON`), updated live via the event stream.
+- **Semantic highlighting**: item names are colored as variables and item
+  definitions as declarations, distinguishing them from rule-local variables
+  and DSL keywords.
 
 ## Supported files
 

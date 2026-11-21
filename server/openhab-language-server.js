@@ -7578,10 +7578,13 @@ var require_ItemStore = __commonJS({
       /**
        * @param {object} options
        * @param {(message: string) => void} [options.log] receives status messages
+       * @param {() => void} [options.onEvent] called after the cache changed via
+       *   an event (used to refresh inlay hints / semantic tokens)
        */
       constructor({ log = () => {
-      } } = {}) {
+      }, onEvent } = {}) {
         this.log = log;
+        this.onEvent = onEvent;
         this.items = /* @__PURE__ */ new Map();
         this.config = void 0;
         this.abortController = void 0;
@@ -7729,6 +7732,7 @@ var require_ItemStore = __commonJS({
         if (!name) {
           return;
         }
+        let changed = false;
         switch (event.type) {
           case "ItemStateEvent":
           case "ItemStateChangedEvent": {
@@ -7741,19 +7745,26 @@ var require_ItemStore = __commonJS({
             if (typeof next === "object" && next.type) {
               existing.type = next.type;
             }
+            changed = true;
             break;
           }
           case "ItemUpdatedEvent":
             this.items.set(name, new Item(event.payload[0]));
+            changed = true;
             break;
           case "ItemAddedEvent":
             this.items.set(name, new Item(event.payload));
+            changed = true;
             break;
           case "ItemRemovedEvent":
             this.items.delete(name);
+            changed = true;
             break;
           default:
             break;
+        }
+        if (changed) {
+          this.onEvent?.();
         }
       }
       /**
@@ -8476,6 +8487,151 @@ var require_diagnostics = __commonJS({
   }
 });
 
+// src/itemPositions.js
+var require_itemPositions = __commonJS({
+  "src/itemPositions.js"(exports2, module2) {
+    "use strict";
+    var { maskStringsAndComments } = require_references();
+    var { parseDefinitionLine } = require_itemIndex();
+    var ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g;
+    var ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)(?![A-Za-z0-9_$])/g;
+    var MEMBER_OF_RE = /Member\s+of\s*\(\s*([A-Za-z_]\w*)(\s*\))/g;
+    var SITEMAP_ITEM_RE = /\bitem\s*=\s*([A-Za-z_]\w*)/g;
+    var VISIBILITY_RE = /(?:\[|,)\s*([A-Za-z_]\w*)\s*(==|!=)/g;
+    var GROUP_LIST_RE = /\(([^()]*)\)/g;
+    var PERSIST_ITEMS_BLOCK_RE = /\bItems\s*\{([^{}]*)\}/g;
+    var PERSIST_NAME_RE = /(?:^|[{,]\s*|\n\s*)([A-Za-z_]\w*)(\*?)/g;
+    var LOCAL_DECL_RE = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)\s*=/g;
+    var NAME_TOKEN_RE = /^[A-Za-z_]\w*$/;
+    function collectMatches(re, masked, into) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(masked)) !== null) {
+        if (m[2] === "*") {
+          continue;
+        }
+        let trailing = 0;
+        for (let i = 2; i < m.length; i++) {
+          trailing += (m[i] || "").length;
+        }
+        into.push({ name: m[1], index: m.index + m[0].length - m[1].length - trailing });
+      }
+    }
+    function findItemPositions(text, extension) {
+      const lines = text.split(/\r?\n/);
+      const lineOffsets = [];
+      let offset = 0;
+      for (const line of lines) {
+        lineOffsets.push(offset);
+        offset += line.length + 1;
+      }
+      const maskedLines = [];
+      let inBlock = false;
+      for (const line of lines) {
+        const [masked, next] = maskStringsAndComments(line, inBlock);
+        inBlock = next;
+        maskedLines.push(masked);
+      }
+      const maskedWhole = maskedLines.join("\n");
+      const toRange = (index, name) => {
+        let line = 0;
+        while (line + 1 < lineOffsets.length && lineOffsets[line + 1] <= index) {
+          line += 1;
+        }
+        const character = index - lineOffsets[line];
+        return { start: { line, character }, end: { line, character: character + name.length } };
+      };
+      const candidates = [];
+      if (extension === "items") {
+        for (let i = 0; i < lines.length; i++) {
+          const def = parseDefinitionLine(lines[i], i);
+          if (def) {
+            candidates.push({ name: def.name, index: lineOffsets[i] + def.range.start.character, isDefinition: true });
+          }
+          const nameEnd = def ? lineOffsets[i] + def.range.end.character : -1;
+          GROUP_LIST_RE.lastIndex = 0;
+          let g;
+          while ((g = GROUP_LIST_RE.exec(maskedLines[i])) !== null) {
+            if (lineOffsets[i] + g.index <= nameEnd) {
+              continue;
+            }
+            let cursor = 0;
+            for (const part of g[1].split(",")) {
+              const name = part.trim();
+              if (NAME_TOKEN_RE.test(name)) {
+                candidates.push({
+                  name,
+                  index: lineOffsets[i] + g.index + 1 + cursor + part.indexOf(name),
+                  isDefinition: false
+                });
+              }
+              cursor += part.length + 1;
+            }
+          }
+        }
+      }
+      switch (extension) {
+        case "rules":
+        case "script":
+          collectMatches(ITEM_TRIGGER_RE, maskedWhole, candidates);
+          collectMatches(MEMBER_OF_RE, maskedWhole, candidates);
+          collectMatches(ITEM_MEMBER_RE, maskedWhole, candidates);
+          break;
+        case "sitemap":
+          collectMatches(SITEMAP_ITEM_RE, maskedWhole, candidates);
+          collectMatches(VISIBILITY_RE, maskedWhole, candidates);
+          break;
+        case "persist": {
+          const blocks = [];
+          PERSIST_ITEMS_BLOCK_RE.lastIndex = 0;
+          let b;
+          while ((b = PERSIST_ITEMS_BLOCK_RE.exec(maskedWhole)) !== null) {
+            blocks.push([b.index + b[0].indexOf("{") + 1, b.index + b[0].length - 1]);
+          }
+          PERSIST_NAME_RE.lastIndex = 0;
+          let m;
+          while ((m = PERSIST_NAME_RE.exec(maskedWhole)) !== null) {
+            if (m[2] === "*") {
+              continue;
+            }
+            const start = m.index + m[0].length - m[1].length - (m[2] || "").length;
+            if (blocks.some(([s, e]) => start >= s && start < e)) {
+              candidates.push({ name: m[1], index: start, isDefinition: false });
+            }
+          }
+          break;
+        }
+        default:
+          break;
+      }
+      const locals = /* @__PURE__ */ new Set();
+      let dm;
+      while ((dm = LOCAL_DECL_RE.exec(maskedWhole)) !== null) {
+        locals.add(dm[1]);
+      }
+      const seen = /* @__PURE__ */ new Set();
+      const out = [];
+      for (const c of candidates) {
+        const key = `${c.name}@${c.index}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        if (locals.has(c.name)) {
+          continue;
+        }
+        out.push({
+          name: c.name,
+          range: toRange(c.index, c.name),
+          isDefinition: !!c.isDefinition
+        });
+      }
+      return out;
+    }
+    module2.exports = { findItemPositions };
+  }
+});
+
 // src/thingTypes.js
 var require_thingTypes = __commonJS({
   "src/thingTypes.js"(exports2, module2) {
@@ -8732,7 +8888,10 @@ var require_Server = __commonJS({
       createConnection,
       ProposedFeatures,
       DidChangeConfigurationNotification,
-      DidChangeWatchedFilesNotification
+      DidChangeWatchedFilesNotification,
+      SemanticTokensBuilder,
+      SemanticTokensRequest,
+      SemanticTokenTypes
     } = require_main4();
     var { TextDocument: TextDocument2 } = (init_main(), __toCommonJS(main_exports));
     var { fileURLToPath } = require("node:url");
@@ -8741,6 +8900,7 @@ var require_Server = __commonJS({
     var hover = require_hover();
     var { extensionOf, OPENHAB_EXTENSIONS } = require_files2();
     var { findUnknownItemRefs } = require_diagnostics();
+    var { findItemPositions } = require_itemPositions();
     var { ItemIndex, NAME_RE } = require_itemIndex();
     var { findReferencesInWorktree } = require_references();
     var { ThingTypeStore } = require_thingTypes();
@@ -8753,6 +8913,13 @@ var require_Server = __commonJS({
       lspEnabled: true
     };
     var CONNECTION_KEYS = ["host", "port", "authToken", "basicAuth"];
+    var SEMANTIC_TOKEN_LEGEND = {
+      tokenTypes: [SemanticTokenTypes.variable, SemanticTokenTypes.property],
+      tokenModifiers: ["declaration"]
+    };
+    var TOKEN_ITEM_REF = 0;
+    var TOKEN_ITEM_DEF = 1;
+    var MOD_DECLARATION = 1;
     function resolveSettings(raw) {
       const merged = { ...DEFAULT_SETTINGS };
       for (const [key, value] of Object.entries(raw || {})) {
@@ -8766,7 +8933,12 @@ var require_Server = __commonJS({
       start() {
         this.connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
         this.settings = { ...DEFAULT_SETTINGS };
-        this.store = new ItemStore({ log: (message) => this.log(message) });
+        this.store = new ItemStore({
+          log: (message) => this.log(message),
+          // Live state changes arrive over the event stream; ask the client
+          // to re-pull inlay hints (and semantic tokens) so they stay live.
+          onEvent: () => this.refreshClientFeatures()
+        });
         this.thingTypes = new ThingTypeStore({ log: (message) => this.log(message) });
         this.things = new ThingStore({ log: (message) => this.log(message) });
         this.connection.onInitialize(this.initialize.bind(this));
@@ -8779,6 +8951,8 @@ var require_Server = __commonJS({
         this.connection.onReferences(this.getReferences.bind(this));
         this.connection.onPrepareRename(this.prepareRename.bind(this));
         this.connection.onRenameRequest(this.rename.bind(this));
+        this.connection.onRequest(SemanticTokensRequest.method, this.getSemanticTokens.bind(this));
+        this.connection.onRequest("textDocument/inlayHint", this.getInlayHints.bind(this));
         this.documents = new TextDocuments(TextDocument2);
         this.documents.listen(this.connection);
         this.documents.onDidOpen((event) => this.validateDocument(event.document));
@@ -8850,7 +9024,12 @@ var require_Server = __commonJS({
             hoverProvider: true,
             definitionProvider: true,
             referencesProvider: true,
-            renameProvider: { prepareProvider: true }
+            renameProvider: { prepareProvider: true },
+            inlayHintProvider: true,
+            semanticTokensProvider: {
+              legend: SEMANTIC_TOKEN_LEGEND,
+              full: true
+            }
           },
           serverInfo: { name: "openHAB Language Server", version: "0.1.0" }
         };
@@ -9096,6 +9275,81 @@ var require_Server = __commonJS({
           });
         }
         return { changes };
+      }
+      /**
+       * Inlay hints: the live state of every item name in the document, shown
+       * right after the name (`Kitchen_Light  ON`). Only items present in the
+       * live cache get a hint — a locally-defined-but-never-created item has no
+       * state to show. The range covers the name; the label sits after it
+       * (position = name end, paddingLeft so there is a space).
+       */
+      getInlayHints(params) {
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+          return [];
+        }
+        const extension = extensionOf(document.uri);
+        if (!OPENHAB_EXTENSIONS.includes(extension)) {
+          return [];
+        }
+        const hints = [];
+        for (const pos of findItemPositions(document.getText(), extension)) {
+          const item = this.store.items.get(pos.name);
+          if (!item || !item.state) {
+            continue;
+          }
+          hints.push({
+            position: pos.range.end,
+            label: ` ${item.state}`,
+            kind: 1,
+            // LSP InlayHintKind.Type; Zed renders the label either way
+            paddingLeft: false,
+            paddingRight: true
+          });
+        }
+        return hints;
+      }
+      /**
+       * Semantic tokens (full document): item references as `variable`, item
+       * definitions (the name token in `.items`) as `property` + `declaration`.
+       * Built with SemanticTokensBuilder so the LSP delta encoding is correct.
+       */
+      getSemanticTokens(params) {
+        const document = this.documents.get(params.textDocument.uri);
+        if (!document) {
+          return { data: [] };
+        }
+        const extension = extensionOf(document.uri);
+        if (!OPENHAB_EXTENSIONS.includes(extension)) {
+          return { data: [] };
+        }
+        const builder = new SemanticTokensBuilder();
+        for (const pos of findItemPositions(document.getText(), extension)) {
+          builder.push(
+            pos.range.start.line,
+            pos.range.start.character,
+            pos.range.end.character - pos.range.start.character,
+            pos.isDefinition ? TOKEN_ITEM_DEF : TOKEN_ITEM_REF,
+            pos.isDefinition ? MOD_DECLARATION : 0
+          );
+        }
+        return builder.build();
+      }
+      /**
+       * Ask the client to re-pull inlay hints and semantic tokens for all open
+       * openHAB documents. Called when the live item cache changes (event
+       * stream), so hints follow state updates without an edit.
+       */
+      refreshClientFeatures() {
+        const caps = this.connection?.client?.capabilities || {};
+        if (caps.textDocument?.inlayHint?.refreshSupport) {
+          this.connection?.sendRequest("workspace/inlayHint/refresh").catch(() => {
+          });
+        }
+        if (caps.textDocument?.semanticTokens?.refreshSupport) {
+          this.connection?.sendRequest("workspace/semanticTokens/refresh").catch(() => {
+          });
+        }
       }
       /**
        * An item is "known" when it is defined in the worktree's .items files or

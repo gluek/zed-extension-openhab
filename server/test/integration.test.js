@@ -364,6 +364,113 @@ test('publishes unknown-item diagnostics for a .rules document over stdio', asyn
     }
 })
 
+test('serves inlay hints and semantic tokens for item names over stdio', async () => {
+    const dir = makeWorktree()
+    fs.writeFileSync(
+        path.join(dir, 'demo.rules'),
+        'rule "x"\nwhen\n    Item Kitchen_Light changed\nthen\n    Kitchen_Light.sendCommand(ON)\nend\n',
+    )
+    const { server, port } = await startFakeOpenHAB([
+        { name: 'Kitchen_Light', type: 'Switch', state: 'ON', tags: [], groupNames: [] },
+        { name: 'gAll', type: 'Group', state: 'OFF', tags: [], groupNames: [] },
+    ])
+    const client = startClient(port)
+    const rulesUri = 'file://' + path.join(dir, 'demo.rules')
+    const itemsUri = 'file://' + path.join(dir, 'lamps.items')
+
+    try {
+        const init = await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: 'file://' + dir,
+            workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
+            capabilities: {
+                textDocument: {
+                    inlayHint: { refreshSupport: true },
+                    semanticTokens: { refreshSupport: true },
+                },
+            },
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        assert.strictEqual(init.result.capabilities.inlayHintProvider, true)
+        assert.deepStrictEqual(init.result.capabilities.semanticTokensProvider.legend.tokenTypes, ['variable', 'property'])
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        const rulesText = fs.readFileSync(path.join(dir, 'demo.rules'), 'utf8')
+        const itemsText = fs.readFileSync(path.join(dir, 'lamps.items'), 'utf8')
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: { textDocument: { uri: rulesUri, languageId: 'openhab', version: 1, text: rulesText } },
+        })
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: { textDocument: { uri: itemsUri, languageId: 'openhab', version: 1, text: itemsText } },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        // 1. Inlay hints in .rules: one per item occurrence, label = live state.
+        const hints = await client.request(2, 'textDocument/inlayHint', {
+            textDocument: { uri: rulesUri },
+            range: { start: { line: 0, character: 0 }, end: { line: 5, character: 0 } },
+        })
+        assert.deepStrictEqual(
+            hints.result.map((h) => `${h.position.line}:${h.position.character}:${h.label}`),
+            ['2:22: ON', '4:17: ON'],
+        )
+
+        // 2. Inlay hints in .items: Kitchen_Light definition (ON), the gAll
+        // group ref on line 0 (OFF), and the gAll definition on line 1 (OFF).
+        const itemHints = await client.request(3, 'textDocument/inlayHint', {
+            textDocument: { uri: itemsUri },
+            range: { start: { line: 0, character: 0 }, end: { line: 2, character: 0 } },
+        })
+        assert.deepStrictEqual(
+            itemHints.result.map((h) => `${h.position.line}:${h.position.character}:${h.label}`),
+            ['0:20: ON', '0:50: OFF', '1:10: OFF'],
+        )
+
+        // 3. Semantic tokens in .rules: both occurrences are `variable` (type 0, mod 0).
+        const tokens = await client.request(4, 'textDocument/semanticTokens/full', {
+            textDocument: { uri: rulesUri },
+        })
+        // Decode the delta-encoded flat array: [dLine, dChar, length, type, mods] per token.
+        const data = tokens.result.data
+        const decoded = []
+        let line = 0
+        let char = 0
+        for (let i = 0; i < data.length; i += 5) {
+            line += data[i]
+            char = data[i] === 0 ? char + data[i + 1] : data[i + 1]
+            decoded.push(`${line}:${char} len=${data[i + 2]} type=${data[i + 3]} mod=${data[i + 4]}`)
+        }
+        assert.deepStrictEqual(decoded, ['2:9 len=13 type=0 mod=0', '4:4 len=13 type=0 mod=0'])
+
+        // 4. Semantic tokens in .items: definition = property+declaration (type 1, mod 1).
+        const itemTokens = await client.request(5, 'textDocument/semanticTokens/full', {
+            textDocument: { uri: itemsUri },
+        })
+        const d2 = itemTokens.result.data
+        const decoded2 = []
+        line = 0
+        char = 0
+        for (let i = 0; i < d2.length; i += 5) {
+            line += d2[i]
+            char = d2[i] === 0 ? char + d2[i + 1] : d2[i + 1]
+            decoded2.push(`${line}:${char} len=${d2[i + 2]} type=${d2[i + 3]} mod=${d2[i + 4]}`)
+        }
+        assert.deepStrictEqual(decoded2, [
+            '0:7 len=13 type=1 mod=1', // Kitchen_Light definition
+            '0:46 len=4 type=0 mod=0', // gAll group ref
+            '1:6 len=4 type=1 mod=1', // gAll definition on line 1
+        ])
+    } finally {
+        client.child.kill()
+        server.close()
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
 test('offers thing-type completions in a .things file end to end', async () => {
     const { server, port } = await startFakeOpenHAB([])
     const client = startClient(port)

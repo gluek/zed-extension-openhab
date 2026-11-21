@@ -25,6 +25,9 @@ const {
     ProposedFeatures,
     DidChangeConfigurationNotification,
     DidChangeWatchedFilesNotification,
+    SemanticTokensBuilder,
+    SemanticTokensRequest,
+    SemanticTokenTypes,
 } = require('vscode-languageserver')
 const { TextDocument } = require('vscode-languageserver-textdocument')
 const { fileURLToPath } = require('node:url')
@@ -34,6 +37,7 @@ const completion = require('./completion')
 const hover = require('./hover')
 const { extensionOf, OPENHAB_EXTENSIONS } = require('./files')
 const { findUnknownItemRefs } = require('./diagnostics')
+const { findItemPositions } = require('./itemPositions')
 const { ItemIndex, NAME_RE } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
 const { ThingTypeStore } = require('./thingTypes')
@@ -49,6 +53,20 @@ const DEFAULT_SETTINGS = {
 
 /** Settings that require reconnecting to openHAB when they change. */
 const CONNECTION_KEYS = ['host', 'port', 'authToken', 'basicAuth']
+
+/**
+ * Semantic-token legend: item references are `variable` (index 0), item
+ * definitions are `property` + the `declaration` modifier (type 1, mod bit 0).
+ * Zed maps these onto its own highlight scopes, so item names stand out from
+ * rule-local variables and DSL keywords.
+ */
+const SEMANTIC_TOKEN_LEGEND = {
+    tokenTypes: [SemanticTokenTypes.variable, SemanticTokenTypes.property],
+    tokenModifiers: ['declaration'],
+}
+const TOKEN_ITEM_REF = 0
+const TOKEN_ITEM_DEF = 1
+const MOD_DECLARATION = 1 // 1 << 0
 
 /**
  * Merge user settings over the defaults.
@@ -74,7 +92,12 @@ class Server {
         this.connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout)
 
         this.settings = { ...DEFAULT_SETTINGS }
-        this.store = new ItemStore({ log: (message) => this.log(message) })
+        this.store = new ItemStore({
+            log: (message) => this.log(message),
+            // Live state changes arrive over the event stream; ask the client
+            // to re-pull inlay hints (and semantic tokens) so they stay live.
+            onEvent: () => this.refreshClientFeatures(),
+        })
         this.thingTypes = new ThingTypeStore({ log: (message) => this.log(message) })
         this.things = new ThingStore({ log: (message) => this.log(message) })
 
@@ -88,6 +111,10 @@ class Server {
         this.connection.onReferences(this.getReferences.bind(this))
         this.connection.onPrepareRename(this.prepareRename.bind(this))
         this.connection.onRenameRequest(this.rename.bind(this))
+        this.connection.onRequest(SemanticTokensRequest.method, this.getSemanticTokens.bind(this))
+        // vscode-languageserver 7.0 has no inlay-hint feature (the protocol lib
+        // predates LSP 3.17), so register the request by method string.
+        this.connection.onRequest('textDocument/inlayHint', this.getInlayHints.bind(this))
 
         this.documents = new TextDocuments(TextDocument)
         this.documents.listen(this.connection)
@@ -174,6 +201,11 @@ class Server {
                 definitionProvider: true,
                 referencesProvider: true,
                 renameProvider: { prepareProvider: true },
+                inlayHintProvider: true,
+                semanticTokensProvider: {
+                    legend: SEMANTIC_TOKEN_LEGEND,
+                    full: true,
+                },
             },
             serverInfo: { name: 'openHAB Language Server', version: '0.1.0' },
         }
@@ -436,6 +468,81 @@ class Server {
             })
         }
         return { changes }
+    }
+
+    /**
+     * Inlay hints: the live state of every item name in the document, shown
+     * right after the name (`Kitchen_Light  ON`). Only items present in the
+     * live cache get a hint — a locally-defined-but-never-created item has no
+     * state to show. The range covers the name; the label sits after it
+     * (position = name end, paddingLeft so there is a space).
+     */
+    getInlayHints(params) {
+        const document = this.documents.get(params.textDocument.uri)
+        if (!document) {
+            return []
+        }
+        const extension = extensionOf(document.uri)
+        if (!OPENHAB_EXTENSIONS.includes(extension)) {
+            return []
+        }
+        const hints = []
+        for (const pos of findItemPositions(document.getText(), extension)) {
+            const item = this.store.items.get(pos.name)
+            if (!item || !item.state) {
+                continue
+            }
+            hints.push({
+                position: pos.range.end,
+                label: ` ${item.state}`,
+                kind: 1, // LSP InlayHintKind.Type; Zed renders the label either way
+                paddingLeft: false,
+                paddingRight: true,
+            })
+        }
+        return hints
+    }
+
+    /**
+     * Semantic tokens (full document): item references as `variable`, item
+     * definitions (the name token in `.items`) as `property` + `declaration`.
+     * Built with SemanticTokensBuilder so the LSP delta encoding is correct.
+     */
+    getSemanticTokens(params) {
+        const document = this.documents.get(params.textDocument.uri)
+        if (!document) {
+            return { data: [] }
+        }
+        const extension = extensionOf(document.uri)
+        if (!OPENHAB_EXTENSIONS.includes(extension)) {
+            return { data: [] }
+        }
+        const builder = new SemanticTokensBuilder()
+        for (const pos of findItemPositions(document.getText(), extension)) {
+            builder.push(
+                pos.range.start.line,
+                pos.range.start.character,
+                pos.range.end.character - pos.range.start.character,
+                pos.isDefinition ? TOKEN_ITEM_DEF : TOKEN_ITEM_REF,
+                pos.isDefinition ? MOD_DECLARATION : 0,
+            )
+        }
+        return builder.build()
+    }
+
+    /**
+     * Ask the client to re-pull inlay hints and semantic tokens for all open
+     * openHAB documents. Called when the live item cache changes (event
+     * stream), so hints follow state updates without an edit.
+     */
+    refreshClientFeatures() {
+        const caps = this.connection?.client?.capabilities || {}
+        if (caps.textDocument?.inlayHint?.refreshSupport) {
+            this.connection?.sendRequest('workspace/inlayHint/refresh').catch(() => {})
+        }
+        if (caps.textDocument?.semanticTokens?.refreshSupport) {
+            this.connection?.sendRequest('workspace/semanticTokens/refresh').catch(() => {})
+        }
     }
 
     /**

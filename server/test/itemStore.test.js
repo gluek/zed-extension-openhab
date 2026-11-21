@@ -116,6 +116,22 @@ test('malformed events are ignored rather than throwing', () => {
     assert.strictEqual(store.size, 1)
 })
 
+test('onEvent fires on cache-changing events but not on malformed or unknown-item events', () => {
+    let calls = 0
+    const store = new ItemStore({ onEvent: () => { calls += 1 } })
+    store.configure({ host: 'localhost', port: 8080 })
+    store.items.set('Kitchen_Light', new (require('../src/Item'))({ name: 'Kitchen_Light', type: 'Switch', state: 'ON' }))
+
+    store.handleEvent(event('openhab/items/Kitchen_Light/state', 'ItemStateEvent', { type: 'OnOff', value: 'OFF' }))
+    assert.strictEqual(calls, 1)
+    store.handleEvent(event('openhab/items/Kitchen_Light/added', 'ItemAddedEvent', { name: 'Kitchen_Light', type: 'Switch' }))
+    assert.strictEqual(calls, 2)
+    store.handleEvent(event('openhab/items/Ghost/state', 'ItemStateEvent', 'ON')) // unknown item: no change
+    assert.strictEqual(calls, 2)
+    store.handleEvent('not json')
+    assert.strictEqual(calls, 2)
+})
+
 test('all() is sorted by name for stable completion order', () => {
     const store = new ItemStore()
     store.configure({ host: 'h', port: 1 })

@@ -1,6 +1,6 @@
 id = "openhab"
 name = "openHAB"
-version = "0.6.1"
+version = "0.6.2"
 schema_version = 1
 authors = ["Gerrit Lükens"]
 description = "openHAB textual configuration support: syntax highlighting, hover, completion, navigation, and diagnostics."

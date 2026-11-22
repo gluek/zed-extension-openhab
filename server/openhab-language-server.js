@@ -8150,17 +8150,50 @@ var require_icons = __commonJS({
     ];
     var KIND_KEYWORD = 14;
     var KIND_ENUM_MEMBER = 20;
+    function maskCompleteStrings(s) {
+      return s.replace(/"[^"\n]*"/g, '""');
+    }
+    var ITEM_PREFIX_OPEN_RE = /^\s*[A-Za-z_]\w*(?::[\w(),=]+)*\s+[A-Za-z_]\w*(\s+"")?(\s*<[^>\n]*)?(\s*\([^)]*\))?(\s*\[[^\]\n]*)?$/;
+    var ITEM_PREFIX_ICON_CLOSED_RE = /^\s*[A-Za-z_]\w*(?::[\w(),=]+)*\s+[A-Za-z_]\w*(\s+"")?(\s*<[^>\n]*>)?(\s*\([^)]*\))?(\s*\[[^\]\n]*)?$/;
     function isIconPosition(extension, context) {
       if (extension !== "items") {
         return false;
       }
-      return /"[^"]*"\s*<[^>]*$/.test(context.before);
+      const { before } = context;
+      if (before.includes("//")) {
+        return false;
+      }
+      const quotes = (before.match(/"/g) || []).length + (before.match(/'/g) || []).length;
+      if (quotes % 2 === 1) {
+        return false;
+      }
+      const masked = maskCompleteStrings(before);
+      return /<[^>\n]*$/.test(masked) && ITEM_PREFIX_OPEN_RE.test(masked);
     }
     function isTagPosition(extension, context) {
       if (extension !== "items") {
         return false;
       }
-      return /"[^"]*"(?:\s*<[^>]*>)?\s*\[[^\]=]*"[^"]*$/.test(context.before);
+      const { before } = context;
+      if (before.includes("//")) {
+        return false;
+      }
+      const quotes = (before.match(/"/g) || []).length;
+      if (quotes % 2 === 0) {
+        return false;
+      }
+      const lastQuote = before.lastIndexOf('"');
+      const head = before.slice(0, lastQuote);
+      const bracket = head.lastIndexOf("[");
+      if (bracket === -1) {
+        return false;
+      }
+      const inside = head.slice(bracket + 1);
+      if (inside.includes("=") || !/^(\s*"[^"]*"\s*,?)*\s*$/.test(inside)) {
+        return false;
+      }
+      const masked = maskCompleteStrings(head);
+      return ITEM_PREFIX_ICON_CLOSED_RE.test(masked);
     }
     function iconCompletions(partial) {
       const items = OH_ICONS.filter((icon) => icon.startsWith(partial.toLowerCase())).map((icon) => ({

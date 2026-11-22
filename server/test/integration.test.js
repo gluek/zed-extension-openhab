@@ -766,6 +766,49 @@ test('offers icon and semantic-tag completions in a .items file over stdio', asy
             position: { line: 0, character: labelText.length },
         })
         assert.ok(!labelRes.result.items.some((i) => i.label === 'Lighting' || i.label === 'Light'))
+
+        // 4. Icon clause WITHOUT a label: `Switch X <li` (label optional in openHAB).
+        const noLabelIcon = 'Switch New_Switch <li\n'
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: { textDocument: { uri: itemsUri, version: 4 }, contentChanges: [{ text: noLabelIcon }] },
+        })
+        const nlIconRes = await client.request(5, 'textDocument/completion', {
+            textDocument: { uri: itemsUri },
+            position: { line: 0, character: noLabelIcon.length },
+        })
+        const nlIconLabels = nlIconRes.result.items.map((i) => i.label)
+        assert.ok(nlIconLabels.includes('light'), `expected 'light' (no-label icon) in ${nlIconLabels}`)
+        assert.ok(nlIconLabels.includes('lightbulb'))
+
+        // 5. Tag list after a closed icon AND a group list: `… <light> (gAll) ["Li`.
+        const tagAfterIconGroups = 'Switch Kitchen_Light "Kitchen Light" <light> (gAll) ["Li\n'
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: { textDocument: { uri: itemsUri, version: 5 }, contentChanges: [{ text: tagAfterIconGroups }] },
+        })
+        const tag2Res = await client.request(6, 'textDocument/completion', {
+            textDocument: { uri: itemsUri },
+            position: { line: 0, character: tagAfterIconGroups.length },
+        })
+        const tag2Labels = tag2Res.result.items.map((i) => i.label)
+        assert.ok(tag2Labels.includes('Light'), `expected ontology 'Light' after icon+groups in ${tag2Labels}`)
+        assert.ok(tag2Labels.includes('Lighting'), `expected project tag 'Lighting' after icon+groups in ${tag2Labels}`)
+
+        // 6. Tag list without a label: `Switch X ["Li`.
+        const tagNoLabel = 'Switch New_Switch ["Li\n'
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: { textDocument: { uri: itemsUri, version: 6 }, contentChanges: [{ text: tagNoLabel }] },
+        })
+        const tag3Res = await client.request(7, 'textDocument/completion', {
+            textDocument: { uri: itemsUri },
+            position: { line: 0, character: tagNoLabel.length },
+        })
+        assert.ok(tag3Res.result.items.map((i) => i.label).includes('Light'), 'expected tags with no label')
     } finally {
         client.child.kill()
         server.close()

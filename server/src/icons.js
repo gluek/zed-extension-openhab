@@ -191,32 +191,85 @@ const KIND_KEYWORD = 14
 const KIND_ENUM_MEMBER = 20
 
 /**
+ * Replace the contents of complete `"…"` pairs with nothing (quotes kept), so
+ * clause characters inside string literals don't confuse the clause-position
+ * checks below.
+ */
+function maskCompleteStrings(s) {
+    return s.replace(/"[^"\n]*"/g, '""')
+}
+
+/** Item-definition line prefix (masked): `Type[:…] Name` plus the optional
+ * label / icon / groups / tag-list-open clauses that may precede the cursor.
+ * The trailing `$` anchor is optional via `rest` so the same shape can also
+ * match a prefix that ends in an unclosed clause (`<`, `[`). */
+// Two shapes: with an open clause at the end (`<…` or `[…`), and with the
+// icon clause complete and closed (`<light>`), for the tag-list check.
+const ITEM_PREFIX_OPEN_RE =
+    /^\s*[A-Za-z_]\w*(?::[\w(),=]+)*\s+[A-Za-z_]\w*(\s+"")?(\s*<[^>\n]*)?(\s*\([^)]*\))?(\s*\[[^\]\n]*)?$/
+const ITEM_PREFIX_ICON_CLOSED_RE =
+    /^\s*[A-Za-z_]\w*(?::[\w(),=]+)*\s+[A-Za-z_]\w*(\s+"")?(\s*<[^>\n]*>)?(\s*\([^)]*\))?(\s*\[[^\]\n]*)?$/
+
+/**
  * True when the cursor is inside the `<…>` icon clause of an `.items`
- * definition line: a `<` after the label string, unclosed up to the cursor.
+ * definition line: an unclosed `<` at clause position. The label is optional
+ * (`Switch X <light>` is valid), so the `<` may directly follow the item name.
  */
 function isIconPosition(extension, context) {
     if (extension !== 'items') {
         return false
     }
-    // The icon clause always follows the label `"…"`; require a closed label
-    // string before the `<` so a `<` in the label or in a config value does
-    // not match.
-    return /"[^"]*"\s*<[^>]*$/.test(context.before)
+    const { before } = context
+    if (before.includes('//')) {
+        return false
+    }
+    // Inside an unclosed string (the label, or a config value) there is no
+    // icon clause — an odd quote count means the cursor is in a string.
+    const quotes = (before.match(/"/g) || []).length + (before.match(/'/g) || []).length
+    if (quotes % 2 === 1) {
+        return false
+    }
+    // An unclosed `<` at clause position: the masked line must match the
+    // item prefix up to and including the open `<…` clause.
+    const masked = maskCompleteStrings(before)
+    return /<[^>\n]*$/.test(masked) && ITEM_PREFIX_OPEN_RE.test(masked)
 }
 
 /**
  * True when the cursor is inside a quoted string of the `["…", "…"]` tag
- * list on an `.items` definition line.
+ * list on an `.items` definition line. The label/icon/groups clauses before
+ * the `[` are all optional; a `=` between `[` and the cursor excludes the
+ * Location config `[ latitude="…" ]` (and mappings).
  */
 function isTagPosition(extension, context) {
     if (extension !== 'items') {
         return false
     }
-    // The tag list follows the label `"…"` (and optionally the icon `<…>`);
-    // require a closed label string before the `[`. Inside the brackets only
-    // tag content up to an unclosed quote — a `=` (Location config
-    // `[ latitude="…" ]`) excludes the bracket.
-    return /"[^"]*"(?:\s*<[^>]*>)?\s*\[[^\]=]*"[^"]*$/.test(context.before)
+    const { before } = context
+    if (before.includes('//')) {
+        return false
+    }
+    // The cursor must be inside an unclosed string (the tag being typed).
+    const quotes = (before.match(/"/g) || []).length
+    if (quotes % 2 === 0) {
+        return false
+    }
+    const lastQuote = before.lastIndexOf('"')
+    const head = before.slice(0, lastQuote)
+    const bracket = head.lastIndexOf('[')
+    if (bracket === -1) {
+        return false
+    }
+    const inside = head.slice(bracket + 1)
+    // Location config / mappings carry `key=`; already-typed tags are `"…", `.
+    if (inside.includes('=') || !/^(\s*"[^"]*"\s*,?)*\s*$/.test(inside)) {
+        return false
+    }
+    // A complete icon clause `<light>` precedes the tag list; drop it so the
+    // prefix check sees the plain `Type Name ["…` shape (an open `<…` would
+    // have failed the unclosed-string quote check above).
+    const masked = maskCompleteStrings(head)
+    return ITEM_PREFIX_ICON_CLOSED_RE.test(masked)
 }
 
 /** Icon completions for the partial inside `<…>`. */

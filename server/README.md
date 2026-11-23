@@ -90,6 +90,13 @@ These are deliberate; see the comments in `src/` for the reasoning.
   and kept current via the `openhab/things/*` (openHAB 4) / `smarthome/things/*`
   (openHAB 3) event stream with a debounced refetch (`src/things.js`). Inside
   `channel="…"` the completion offers real channel UIDs of your things.
+- **Unknown-channel diagnostics in `.items`.** `findUnknownChannels`
+  (`src/diagnostics.js`) validates every `channel="…"` value (comma-separated
+  lists included) against the thing cache: the thing part must exist and the
+  full UID must be one of its channels, otherwise an error is published on
+  `didOpen`/`didChange`. The check only runs once the thing cache has loaded
+  successfully, so an unreachable instance does not flag every channel; open
+  documents are re-validated after (re)connect.
 - **Inlay hints with live state (B3).** `textDocument/inlayHint` returns the
   current state after every item-name occurrence in openHAB files
   (`src/itemPositions.js` finds the occurrences; only items present in the live

@@ -932,3 +932,65 @@ test('offers channel UID completions inside channel="…" in .items end to end',
         server.close()
     }
 })
+
+test('publishes unknown-channel diagnostics for .items over stdio', async () => {
+    const dir = makeWorktree()
+    fs.writeFileSync(
+        path.join(dir, 'lamps.items'),
+        'Switch A "a" { channel="hue:0210:1:bulb1:color" }\n' +
+            'Switch B "b" { channel="hue:0210:1:bulb1:colr" }\n' +
+            'Switch C "c" { channel="zwave:node2:switch" }\n',
+    )
+    const { server, port } = await startFakeOpenHAB([])
+    const client = startClient(port)
+    const itemsUri = 'file://' + path.join(dir, 'lamps.items')
+    try {
+        await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: 'file://' + dir,
+            workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        const text = fs.readFileSync(path.join(dir, 'lamps.items'), 'utf8')
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: { textDocument: { uri: itemsUri, languageId: 'openhab', version: 1, text } },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 500))
+
+        const pubs = client.notifications.filter((n) => n.method === 'textDocument/publishDiagnostics' && n.params.uri === itemsUri)
+        assert.ok(pubs.length >= 1, 'expected publishDiagnostics for the .items file')
+        const diags = pubs[pubs.length - 1].params.diagnostics
+        // hue:0210:1:bulb1:color exists; :colr is a typo on a known thing;
+        // zwave:node2 is not on the instance.
+        assert.deepStrictEqual(
+            diags.map((d) => `${d.range.start.line}:${d.range.start.character}:${d.message}`),
+            [
+                "1:24:Channel 'hue:0210:1:bulb1:colr' does not exist on thing 'hue:0210:1:bulb1'",
+                "2:24:Unknown thing 'zwave:node2' in channel 'zwave:node2:switch' (thing not present on the openHAB instance)",
+            ],
+        )
+        assert.ok(diags.every((d) => d.severity === 1 && d.source === 'openhab-lsp'))
+
+        // Fixing both -> diagnostics clear on didChange.
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didChange',
+            params: {
+                textDocument: { uri: itemsUri, version: 2 },
+                contentChanges: [{ text: text.replace('bulb1:colr', 'bulb1:brightness').replace('zwave:node2:switch', 'hue:0210:1:bulb1:color') }],
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const pubs2 = client.notifications.filter((n) => n.method === 'textDocument/publishDiagnostics' && n.params.uri === itemsUri)
+        assert.deepStrictEqual(pubs2[pubs2.length - 1].params.diagnostics, [])
+    } finally {
+        client.child.kill()
+        server.close()
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})

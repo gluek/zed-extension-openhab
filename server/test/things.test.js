@@ -42,6 +42,26 @@ test('channelsOf returns one thing’s channels', () => {
     assert.deepStrictEqual(store().channelsOf('nope'), [])
 })
 
+test('hasThing / hasChannel answer from the cache', () => {
+    const s = store()
+    assert.strictEqual(s.hasThing('hue:0210:1:bulb1'), true)
+    assert.strictEqual(s.hasThing('nope'), false)
+    assert.strictEqual(s.hasChannel('hue:0210:1:bulb1:color'), true)
+    assert.strictEqual(s.hasChannel('hue:0210:1:bulb1:nope'), false)
+    assert.strictEqual(s.hasChannel('nope:thing:channel'), false)
+})
+
+test('loaded is false until /rest/things succeeds, true after', async () => {
+    const s = new ThingStore()
+    assert.strictEqual(s.loaded, false)
+    s.config = { host: '127.0.0.1', port: 1 } // unreachable
+    await s.load()
+    assert.strictEqual(s.loaded, false)
+    for (const t of THINGS) s.channelsByThing.set(t.UID, t.channels)
+    s.loaded = true
+    assert.strictEqual(s.hasChannel('mqtt:broker:nuc:status'), true)
+})
+
 test('isChannelValuePosition fires only inside channel="…" in .items', () => {
     assert.ok(isChannelValuePosition('items', { before: '{ channel="hue:' }))
     assert.ok(isChannelValuePosition('items', { before: 'Switch X "x" { channel="' }))

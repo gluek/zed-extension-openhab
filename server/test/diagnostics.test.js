@@ -3,7 +3,7 @@
 const test = require('node:test')
 const assert = require('node:assert')
 
-const { findUnknownItemRefs, findUnknownTags } = require('../src/diagnostics')
+const { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require('../src/diagnostics')
 
 const KNOWN = new Set(['Kitchen_Light', 'gLights', 'Weather_Temperature', 'gAll'])
 const isKnown = (name) => KNOWN.has(name)
@@ -148,4 +148,48 @@ test('findUnknownTags passes the match position so the caller can exclude the sa
     // All callbacks received a {line, character} position.
     assert.ok(seen.length === 3)
     assert.ok(seen.every(([, pos]) => typeof pos.line === 'number' && typeof pos.character === 'number'))
+})
+
+const THINGS = {
+    'hue:0210:1:bulb1': ['hue:0210:1:bulb1:color', 'hue:0210:1:bulb1:brightness'],
+    'mqtt:broker:nuc': ['mqtt:broker:nuc:status'],
+}
+const knownChannels = {
+    isKnownThing: (thingUID) => thingUID in THINGS,
+    isKnownChannel: (uid) => Object.values(THINGS).some((chs) => chs.includes(uid)),
+}
+
+test('findUnknownChannels flags channels missing on a known thing and unknown things', () => {
+    const items = [
+        'Switch A "a" { channel="hue:0210:1:bulb1:color" }', // ok
+        'Switch B "b" { channel="hue:0210:1:bulb1:colr" }', // typo: channel missing
+        'Switch C "c" { channel="mqtt:broker:nuc:statuz" }', // typo
+        'Switch D "d" { channel="zwave:node2:switch" }', // thing unknown
+    ].join('\n')
+    const found = findUnknownChannels(items, knownChannels)
+    assert.deepStrictEqual(
+        found.map((f) => `${f.range.start.line}:${f.range.start.character}:${f.name}`),
+        ['1:24:hue:0210:1:bulb1:colr', '2:24:mqtt:broker:nuc:statuz', '3:24:zwave:node2:switch'],
+    )
+    assert.ok(found[0].message.includes("Channel 'hue:0210:1:bulb1:colr' does not exist on thing 'hue:0210:1:bulb1'"))
+    assert.ok(found[2].message.includes("Unknown thing 'zwave:node2'"))
+    assert.ok(found.every((f) => f.severity === 1))
+})
+
+test('findUnknownChannels handles comma-separated channel lists and single quotes', () => {
+    const items = 'Switch A "a" { channel="hue:0210:1:bulb1:color, hue:0210:1:bulb1:nope" }\n' + "Switch B 'b' { channel='mqtt:broker:nuc:status' }\n"
+    const found = findUnknownChannels(items, knownChannels)
+    assert.deepStrictEqual(
+        found.map((f) => `${f.range.start.line}:${f.range.start.character}:${f.name}`),
+        ['0:48:hue:0210:1:bulb1:nope'],
+    )
+})
+
+test('findUnknownChannels ignores channel= inside strings/comments and non-channel keys', () => {
+    const items = [
+        '// Switch X "x" { channel="hue:0210:1:bulb1:nope" }', // comment
+        'Switch Y "y" { channel="hue:0210:1:bulb1:color" } // trailing comment channel="bad"',
+        'Switch Z "z" { autoupdate="channel=\\"nope\\"" }', // not a channel key
+    ].join('\n')
+    assert.deepStrictEqual(findUnknownChannels(items, knownChannels), [])
 })

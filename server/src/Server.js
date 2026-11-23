@@ -38,7 +38,7 @@ const hover = require('./hover')
 const { extensionOf, OPENHAB_EXTENSIONS } = require('./files')
 const icons = require('./icons')
 const { codeActionsAt } = require('./codeActions')
-const { findUnknownItemRefs, findUnknownTags } = require('./diagnostics')
+const { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require('./diagnostics')
 const { findItemPositions } = require('./itemPositions')
 const { ItemIndex, NAME_RE } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
@@ -249,6 +249,11 @@ class Server {
         await this.store.restart(this.settings)
         await this.thingTypes.load(this.settings)
         await this.things.start(this.settings)
+        // Things may have loaded (or reloaded) after the open documents were
+        // validated — re-run validation so channel links are checked.
+        for (const document of this.documents.all()) {
+            this.validateDocument(document)
+        }
     }
 
     /**
@@ -289,6 +294,9 @@ class Server {
             await this.thingTypes.load(this.settings)
             this.things.stop()
             await this.things.start(this.settings)
+            for (const document of this.documents.all()) {
+                this.validateDocument(document)
+            }
         }
     }
 
@@ -812,12 +820,22 @@ class Server {
                     file ? this.isKnownTagAt(tag, { file, line: pos.line }) : this.isKnownTagAt(tag, { file: null, line: -1 }),
                 ),
             )
+            // Channel links are only checked when the thing cache actually
+            // loaded — an unreachable instance must not flag every channel.
+            if (this.things.loaded) {
+                found.push(
+                    ...findUnknownChannels(text, {
+                        isKnownThing: (thingUID) => this.things.hasThing(thingUID),
+                        isKnownChannel: (uid) => this.things.hasChannel(uid),
+                    }),
+                )
+            }
         }
         this.connection.sendDiagnostics({
             uri: document.uri,
             diagnostics: found.map((d) => ({
                 range: d.range,
-                severity: 2, // Warning
+                severity: d.severity ?? 2, // Warning (channel errors pass 1)
                 source: 'openhab-lsp',
                 message: d.message,
             })),

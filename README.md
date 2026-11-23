@@ -50,6 +50,11 @@ It provides:
   definition, a tag that is neither in openHAB's semantic ontology, nor used
   by another item in the project, nor present on the running instance is
   underlined as a warning — catches misspelled semantic tags.
+- **Unknown-channel errors**: a `channel="…"` in an `.items` definition that
+  points at a thing not on the running instance, or at a channel that thing
+  does not have (e.g. a typo like `mqtt:broker:nuc:statuz`), is underlined as
+  an error — the link can never resolve. Checked against `/rest/things`, so
+  it only runs while the instance is reachable.
 
 ## Supported files
 
@@ -117,7 +122,10 @@ an item name shows its current state. If openHAB is unreachable, the server
 logs a message in Zed's log (`zed: open log`) and retries every 10 seconds;
 it never crashes. Unknown item references (not in any `.items` file in the
 project and not on the instance) are reported as warnings while you edit,
-as are unknown semantic tags in `.items` tag lists.
+as are unknown semantic tags in `.items` tag lists. `channel="…"` links in
+`.items` are validated against the instance's things (`/rest/things`): an
+unknown thing or a channel the thing does not have is reported as an error
+(only while the instance is reachable).
 
 ## Development
 

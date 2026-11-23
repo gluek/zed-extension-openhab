@@ -28,6 +28,10 @@ class ThingStore {
         this.rest = rest || defaultRest
         /** @type {Map<string, Array<{uid: string, channelTypeUID?: string, label?: string, itemType?: string}>>} thingUID -> channels */
         this.channelsByThing = new Map()
+        /** True once /rest/things loaded successfully at least once. While
+         * false (instance unreachable), channel diagnostics must not run —
+         * an empty cache would flag every channel. */
+        this.loaded = false
         this.stopped = true
         this.abortController = undefined
         this.refetchTimer = undefined
@@ -45,6 +49,7 @@ class ThingStore {
 
     stop() {
         this.stopped = true
+        this.loaded = false
         this.abortController?.abort()
         this.abortController = undefined
         if (this.refetchTimer) {
@@ -88,10 +93,24 @@ class ThingStore {
                     this.channelsByThing.set(thing.UID, thing.channels)
                 }
             }
+            this.loaded = true
             this.log(`loaded channels of ${this.channelsByThing.size} things`)
         } catch (error) {
             this.log(`cannot load things (${error.message}); channel completion limited`)
         }
+    }
+
+    /** True when `thingUID` exists on the instance (cache loaded). */
+    hasThing(thingUID) {
+        return this.channelsByThing.has(thingUID)
+    }
+
+    /** True when `uid` (`thingUID:channelId`) is a channel of a known thing. */
+    hasChannel(uid) {
+        const colon = uid.lastIndexOf(':')
+        const thingUID = colon > 0 ? uid.slice(0, colon) : uid
+        const channels = this.channelsByThing.get(thingUID)
+        return !!channels && channels.some((c) => c.uid === uid)
     }
 
     /** Subscribe to thing events; refetch the list (debounced) on any event. */

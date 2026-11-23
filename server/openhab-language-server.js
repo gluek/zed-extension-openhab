@@ -8739,6 +8739,16 @@ var require_diagnostics = __commonJS({
     var PERSIST_NAME_RE = /(?:^|[{,]\s*|\n\s*)([A-Za-z_]\w*)(\*?)/g;
     var LOCAL_DECL_RE = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)\s*=/g;
     var NAME_TOKEN_RE = /^[A-Za-z_]\w*$/;
+    var CHANNEL_ASSIGN_RE = /\bchannel\s*=\s*"([^"]*)"|\bchannel\s*=\s*'([^']*)'/g;
+    function rangeOn(line, character, text) {
+      return {
+        range: {
+          start: { line, character },
+          end: { line, character: character + text.length }
+        },
+        name: text
+      };
+    }
     function collectMatches(re, masked, into, accept) {
       re.lastIndex = 0;
       let m;
@@ -8902,7 +8912,51 @@ var require_diagnostics = __commonJS({
       }
       return out;
     }
-    module2.exports = { findUnknownItemRefs, findUnknownTags };
+    function findUnknownChannels(text, known) {
+      const out = [];
+      const lines = text.split(/\r?\n/);
+      let inBlock = false;
+      for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+        const raw = lines[lineNo];
+        const [masked, next] = maskStringsAndComments(raw, inBlock);
+        inBlock = next;
+        CHANNEL_ASSIGN_RE.lastIndex = 0;
+        let m;
+        while ((m = CHANNEL_ASSIGN_RE.exec(raw)) !== null) {
+          if (masked[m.index] === " ") {
+            continue;
+          }
+          const value = m[1] ?? m[2] ?? "";
+          const valueStart = m.index + m[0].search(/["']/) + 1;
+          let cursor = 0;
+          for (const part of value.split(",")) {
+            const uid = part.trim();
+            if (uid) {
+              const offset = valueStart + cursor + part.indexOf(uid);
+              const colon = uid.lastIndexOf(":");
+              const thingUID = colon > 0 ? uid.slice(0, colon) : uid;
+              if (!known.isKnownThing(thingUID)) {
+                out.push({
+                  ...rangeOn(lineNo, offset, uid),
+                  severity: 1,
+                  // Error: the link can never resolve
+                  message: `Unknown thing '${thingUID}' in channel '${uid}' (thing not present on the openHAB instance)`
+                });
+              } else if (!known.isKnownChannel(uid)) {
+                out.push({
+                  ...rangeOn(lineNo, offset, uid),
+                  severity: 1,
+                  message: `Channel '${uid}' does not exist on thing '${thingUID}'`
+                });
+              }
+            }
+            cursor += part.length + 1;
+          }
+        }
+      }
+      return out;
+    }
+    module2.exports = { findUnknownChannels, findUnknownItemRefs, findUnknownTags };
   }
 });
 
@@ -9166,6 +9220,7 @@ var require_things = __commonJS({
         this.log = log;
         this.rest = rest || defaultRest;
         this.channelsByThing = /* @__PURE__ */ new Map();
+        this.loaded = false;
         this.stopped = true;
         this.abortController = void 0;
         this.refetchTimer = void 0;
@@ -9181,6 +9236,7 @@ var require_things = __commonJS({
       }
       stop() {
         this.stopped = true;
+        this.loaded = false;
         this.abortController?.abort();
         this.abortController = void 0;
         if (this.refetchTimer) {
@@ -9220,10 +9276,22 @@ var require_things = __commonJS({
               this.channelsByThing.set(thing.UID, thing.channels);
             }
           }
+          this.loaded = true;
           this.log(`loaded channels of ${this.channelsByThing.size} things`);
         } catch (error) {
           this.log(`cannot load things (${error.message}); channel completion limited`);
         }
+      }
+      /** True when `thingUID` exists on the instance (cache loaded). */
+      hasThing(thingUID) {
+        return this.channelsByThing.has(thingUID);
+      }
+      /** True when `uid` (`thingUID:channelId`) is a channel of a known thing. */
+      hasChannel(uid) {
+        const colon = uid.lastIndexOf(":");
+        const thingUID = colon > 0 ? uid.slice(0, colon) : uid;
+        const channels = this.channelsByThing.get(thingUID);
+        return !!channels && channels.some((c) => c.uid === uid);
       }
       /** Subscribe to thing events; refetch the list (debounced) on any event. */
       async listen() {
@@ -9320,7 +9388,7 @@ var require_Server = __commonJS({
     var { extensionOf, OPENHAB_EXTENSIONS } = require_files2();
     var icons = require_icons();
     var { codeActionsAt } = require_codeActions();
-    var { findUnknownItemRefs, findUnknownTags } = require_diagnostics();
+    var { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require_diagnostics();
     var { findItemPositions } = require_itemPositions();
     var { ItemIndex, NAME_RE } = require_itemIndex();
     var { findReferencesInWorktree } = require_references();
@@ -9484,6 +9552,9 @@ var require_Server = __commonJS({
         await this.store.restart(this.settings);
         await this.thingTypes.load(this.settings);
         await this.things.start(this.settings);
+        for (const document of this.documents.all()) {
+          this.validateDocument(document);
+        }
       }
       /**
        * Ask the client for the `openhab` section. Returns `undefined` when the
@@ -9520,6 +9591,9 @@ var require_Server = __commonJS({
           await this.thingTypes.load(this.settings);
           this.things.stop();
           await this.things.start(this.settings);
+          for (const document of this.documents.all()) {
+            this.validateDocument(document);
+          }
         }
       }
       /** Completion scoped to the positions where openHAB accepts item names. */
@@ -10002,13 +10076,21 @@ var require_Server = __commonJS({
               (tag, pos) => file ? this.isKnownTagAt(tag, { file, line: pos.line }) : this.isKnownTagAt(tag, { file: null, line: -1 })
             )
           );
+          if (this.things.loaded) {
+            found.push(
+              ...findUnknownChannels(text, {
+                isKnownThing: (thingUID) => this.things.hasThing(thingUID),
+                isKnownChannel: (uid) => this.things.hasChannel(uid)
+              })
+            );
+          }
         }
         this.connection.sendDiagnostics({
           uri: document.uri,
           diagnostics: found.map((d) => ({
             range: d.range,
-            severity: 2,
-            // Warning
+            severity: d.severity ?? 2,
+            // Warning (channel errors pass 1)
             source: "openhab-lsp",
             message: d.message
           }))

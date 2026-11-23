@@ -53,6 +53,23 @@ const LOCAL_DECL_RE = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)\s*=/g
 const NAME_TOKEN_RE = /^[A-Za-z_]\w*$/
 
 /**
+ * `channel="…"` (or single-quoted) in an `.items` metadata block. Group 1 is
+ * the double-quoted value, group 2 the single-quoted one.
+ */
+const CHANNEL_ASSIGN_RE = /\bchannel\s*=\s*"([^"]*)"|\bchannel\s*=\s*'([^']*)'/g
+
+/** LSP range of `text` starting at (line, character). */
+function rangeOn(line, character, text) {
+    return {
+        range: {
+            start: { line, character },
+            end: { line, character: character + text.length },
+        },
+        name: text,
+    }
+}
+
+/**
  * Push `{name, index}` for every match of `re` in `masked`. `index` is the
  * absolute start offset of the captured name (group 1); all later groups are
  * trailing tokens whose length is subtracted from the offset math. Matches
@@ -272,4 +289,64 @@ function findUnknownTags(text, isKnownTag) {
     return out
 }
 
-module.exports = { findUnknownItemRefs, findUnknownTags }
+/**
+ * Unknown-channel diagnostics in a `.items` document: every `channel="…"`
+ * value (a value may list several UIDs, comma-separated) is checked against
+ * the live things. The thing part of the UID (everything before the last `:`)
+ * must exist, and the full UID must be one of that thing's channels. The
+ * caller only invokes this when the thing cache actually loaded — otherwise
+ * an unreachable openHAB would flag every channel.
+ *
+ * Strings/comments are masked per line; matches whose `channel` keyword sits
+ * inside a masked region are skipped (the value itself is read from the raw
+ * line so offsets stay true to the document).
+ *
+ * @param {string} text full document text
+ * @param {{isKnownThing: (thingUID: string) => boolean, isKnownChannel: (uid: string) => boolean}} known
+ * @returns {Array<{range: object, name: string, message: string, severity: number}>}
+ */
+function findUnknownChannels(text, known) {
+    const out = []
+    const lines = text.split(/\r?\n/)
+    let inBlock = false
+    for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+        const raw = lines[lineNo]
+        const [masked, next] = maskStringsAndComments(raw, inBlock)
+        inBlock = next
+        CHANNEL_ASSIGN_RE.lastIndex = 0
+        let m
+        while ((m = CHANNEL_ASSIGN_RE.exec(raw)) !== null) {
+            if (masked[m.index] === ' ') {
+                continue // `channel=` inside a string or comment
+            }
+            const value = m[1] ?? m[2] ?? ''
+            const valueStart = m.index + m[0].search(/["']/) + 1
+            let cursor = 0
+            for (const part of value.split(',')) {
+                const uid = part.trim()
+                if (uid) {
+                    const offset = valueStart + cursor + part.indexOf(uid)
+                    const colon = uid.lastIndexOf(':')
+                    const thingUID = colon > 0 ? uid.slice(0, colon) : uid
+                    if (!known.isKnownThing(thingUID)) {
+                        out.push({
+                            ...rangeOn(lineNo, offset, uid),
+                            severity: 1, // Error: the link can never resolve
+                            message: `Unknown thing '${thingUID}' in channel '${uid}' (thing not present on the openHAB instance)`,
+                        })
+                    } else if (!known.isKnownChannel(uid)) {
+                        out.push({
+                            ...rangeOn(lineNo, offset, uid),
+                            severity: 1,
+                            message: `Channel '${uid}' does not exist on thing '${thingUID}'`,
+                        })
+                    }
+                }
+                cursor += part.length + 1 // +1 for the comma
+            }
+        }
+    }
+    return out
+}
+
+module.exports = { findUnknownChannels, findUnknownItemRefs, findUnknownTags }

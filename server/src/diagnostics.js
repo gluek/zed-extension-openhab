@@ -21,7 +21,7 @@
 
 const { maskStringsAndComments } = require('./references')
 const { parseDefinitionLine } = require('./itemIndex')
-const { SEMANTIC_TAGS } = require('./icons')
+const { SEMANTIC_TAGS } = require('./semantictags')
 
 /** Member accesses that only make sense on items. Group 2 = the trailing `.member`. */
 const ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g

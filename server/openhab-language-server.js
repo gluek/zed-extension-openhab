@@ -7993,90 +7993,10 @@ var require_files2 = __commonJS({
   }
 });
 
-// src/icons.js
-var require_icons = __commonJS({
-  "src/icons.js"(exports2, module2) {
+// src/semantictags.js
+var require_semantictags = __commonJS({
+  "src/semantictags.js"(exports2, module2) {
     "use strict";
-    var OH_ICONS = [
-      "absorb",
-      "airconditioner",
-      "alarm",
-      "arrow_down",
-      "arrow_up",
-      "asterisk",
-      "attention",
-      "babyphone",
-      "bathtub",
-      "battery",
-      "bed",
-      "bicycle",
-      "blinds",
-      "bluetooth",
-      "boy",
-      "briefcase",
-      "calendar",
-      "car",
-      "cd",
-      "chart",
-      "clock",
-      "computer",
-      "contact",
-      "delete",
-      "door",
-      "downstairs",
-      "error",
-      "fan",
-      "female",
-      "fire",
-      "flower",
-      "garage",
-      "garbage",
-      "girl",
-      "group",
-      "heating",
-      "house",
-      "humidity",
-      "internet",
-      "key",
-      "light",
-      "lightbulb",
-      "lock",
-      "machine",
-      "male",
-      "message",
-      "motion",
-      "network",
-      "none",
-      "oh",
-      "office",
-      "oven",
-      "phone",
-      "presence",
-      "projector",
-      "receiver",
-      "refresh",
-      "rollershutter",
-      "screen",
-      "settings",
-      "siren",
-      "slider",
-      "smoke",
-      "solar",
-      "sound",
-      "sport",
-      "switch",
-      "table",
-      "temperature",
-      "time",
-      "tv",
-      "upstairs",
-      "video",
-      "washer",
-      "water",
-      "window",
-      "wind"
-    ];
-    var ICON_PREFIXES = ["mdi", "fa-solid", "fa-regular", "fa-brands", "wi", "smarthome", "oh"];
     var SEMANTIC_TAGS = [
       // Top-level classes (the CSV `Type` column values; not listed as rows)
       "Equipment",
@@ -8355,28 +8275,11 @@ var require_icons = __commonJS({
       "Zone",
       "AlarmZone"
     ];
-    var KIND_KEYWORD = 14;
     var KIND_ENUM_MEMBER = 20;
     function maskCompleteStrings(s) {
       return s.replace(/"[^"\n]*"/g, '""');
     }
-    var ITEM_PREFIX_OPEN_RE = /^\s*[A-Za-z_]\w*(?::[\w(),=]+)*\s+[A-Za-z_]\w*(\s+"")?(\s*<[^>\n]*)?(\s*\([^)]*\))?(\s*\[[^\]\n]*)?$/;
     var ITEM_PREFIX_ICON_CLOSED_RE = /^\s*[A-Za-z_]\w*(?::[\w(),=]+)*\s+[A-Za-z_]\w*(\s+"")?(\s*<[^>\n]*>)?(\s*\([^)]*\))?(\s*\[[^\]\n]*)?$/;
-    function isIconPosition(extension, context) {
-      if (extension !== "items") {
-        return false;
-      }
-      const { before } = context;
-      if (before.includes("//")) {
-        return false;
-      }
-      const quotes = (before.match(/"/g) || []).length + (before.match(/'/g) || []).length;
-      if (quotes % 2 === 1) {
-        return false;
-      }
-      const masked = maskCompleteStrings(before);
-      return /<[^>\n]*$/.test(masked) && ITEM_PREFIX_OPEN_RE.test(masked);
-    }
     function isTagPosition(extension, context) {
       if (extension !== "items") {
         return false;
@@ -8402,6 +8305,124 @@ var require_icons = __commonJS({
       const masked = maskCompleteStrings(head);
       return ITEM_PREFIX_ICON_CLOSED_RE.test(masked);
     }
+    function tagCompletions(partial, extraTags = []) {
+      const seen = /* @__PURE__ */ new Set();
+      const items = [];
+      for (const tag of [...extraTags, ...SEMANTIC_TAGS]) {
+        if (seen.has(tag) || !tag.toLowerCase().startsWith(partial.toLowerCase())) {
+          continue;
+        }
+        seen.add(tag);
+        items.push({ label: tag, kind: KIND_ENUM_MEMBER, detail: "semantic tag" });
+      }
+      return items;
+    }
+    module2.exports = { SEMANTIC_TAGS, isTagPosition, tagCompletions, maskCompleteStrings };
+  }
+});
+
+// src/icons.js
+var require_icons = __commonJS({
+  "src/icons.js"(exports2, module2) {
+    "use strict";
+    var { maskCompleteStrings } = require_semantictags();
+    var OH_ICONS = [
+      "absorb",
+      "airconditioner",
+      "alarm",
+      "arrow_down",
+      "arrow_up",
+      "asterisk",
+      "attention",
+      "babyphone",
+      "bathtub",
+      "battery",
+      "bed",
+      "bicycle",
+      "blinds",
+      "bluetooth",
+      "boy",
+      "briefcase",
+      "calendar",
+      "car",
+      "cd",
+      "chart",
+      "clock",
+      "computer",
+      "contact",
+      "delete",
+      "door",
+      "downstairs",
+      "error",
+      "fan",
+      "female",
+      "fire",
+      "flower",
+      "garage",
+      "garbage",
+      "girl",
+      "group",
+      "heating",
+      "house",
+      "humidity",
+      "internet",
+      "key",
+      "light",
+      "lightbulb",
+      "lock",
+      "machine",
+      "male",
+      "message",
+      "motion",
+      "network",
+      "none",
+      "oh",
+      "office",
+      "oven",
+      "phone",
+      "presence",
+      "projector",
+      "receiver",
+      "refresh",
+      "rollershutter",
+      "screen",
+      "settings",
+      "siren",
+      "slider",
+      "smoke",
+      "solar",
+      "sound",
+      "sport",
+      "switch",
+      "table",
+      "temperature",
+      "time",
+      "tv",
+      "upstairs",
+      "video",
+      "washer",
+      "water",
+      "window",
+      "wind"
+    ];
+    var ICON_PREFIXES = ["mdi", "fa-solid", "fa-regular", "fa-brands", "wi", "smarthome", "oh"];
+    var KIND_KEYWORD = 14;
+    var ITEM_PREFIX_OPEN_RE = /^\s*[A-Za-z_]\w*(?::[\w(),=]+)*\s+[A-Za-z_]\w*(\s+"")?(\s*<[^>\n]*)?(\s*\([^)]*\))?(\s*\[[^\]\n]*)?$/;
+    function isIconPosition(extension, context) {
+      if (extension !== "items") {
+        return false;
+      }
+      const { before } = context;
+      if (before.includes("//")) {
+        return false;
+      }
+      const quotes = (before.match(/"/g) || []).length + (before.match(/'/g) || []).length;
+      if (quotes % 2 === 1) {
+        return false;
+      }
+      const masked = maskCompleteStrings(before);
+      return /<[^>\n]*$/.test(masked) && ITEM_PREFIX_OPEN_RE.test(masked);
+    }
     function iconCompletions(partial) {
       const items = OH_ICONS.filter((icon) => icon.startsWith(partial.toLowerCase())).map((icon) => ({
         label: icon,
@@ -8415,19 +8436,7 @@ var require_icons = __commonJS({
       }
       return items;
     }
-    function tagCompletions(partial, extraTags = []) {
-      const seen = /* @__PURE__ */ new Set();
-      const items = [];
-      for (const tag of [...extraTags, ...SEMANTIC_TAGS]) {
-        if (seen.has(tag) || !tag.toLowerCase().startsWith(partial.toLowerCase())) {
-          continue;
-        }
-        seen.add(tag);
-        items.push({ label: tag, kind: KIND_ENUM_MEMBER, detail: "semantic tag" });
-      }
-      return items;
-    }
-    module2.exports = { OH_ICONS, ICON_PREFIXES, SEMANTIC_TAGS, isIconPosition, isTagPosition, iconCompletions, tagCompletions };
+    module2.exports = { OH_ICONS, ICON_PREFIXES, isIconPosition, iconCompletions };
   }
 });
 
@@ -8935,7 +8944,7 @@ var require_diagnostics = __commonJS({
     "use strict";
     var { maskStringsAndComments } = require_references();
     var { parseDefinitionLine } = require_itemIndex();
-    var { SEMANTIC_TAGS } = require_icons();
+    var { SEMANTIC_TAGS } = require_semantictags();
     var ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g;
     var ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)/g;
     var MEMBER_OF_RE = /Member\s+of\s*\(\s*([A-Za-z_]\w*)(\s*\))/g;
@@ -9594,6 +9603,7 @@ var require_Server = __commonJS({
     var hover = require_hover();
     var { extensionOf, OPENHAB_EXTENSIONS } = require_files2();
     var icons = require_icons();
+    var semantictags = require_semantictags();
     var { codeActionsAt } = require_codeActions();
     var { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require_diagnostics();
     var { findItemPositions } = require_itemPositions();
@@ -9825,12 +9835,12 @@ var require_Server = __commonJS({
           const partial = /<([^>]*)$/.exec(context.before)[1];
           return { isIncomplete: false, items: icons.iconCompletions(partial) };
         }
-        if (icons.isTagPosition(extension, context)) {
+        if (semantictags.isTagPosition(extension, context)) {
           const partial = /\[[^\]=]*"([^"]*)$/.exec(context.before)[1];
           this.getIndex();
           return {
             isIncomplete: false,
-            items: icons.tagCompletions(partial, this.usedTags())
+            items: semantictags.tagCompletions(partial, this.usedTags())
           };
         }
         if (completion.isThingUidPosition(extension, context)) {

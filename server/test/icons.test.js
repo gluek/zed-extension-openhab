@@ -4,14 +4,8 @@ const test = require('node:test')
 const assert = require('node:assert')
 
 const { contextAt } = require('../src/completion')
-const {
-    OH_ICONS,
-    SEMANTIC_TAGS,
-    isIconPosition,
-    isTagPosition,
-    iconCompletions,
-    tagCompletions,
-} = require('../src/icons')
+const { OH_ICONS, isIconPosition, iconCompletions } = require('../src/icons')
+const { SEMANTIC_TAGS, isTagPosition, tagCompletions } = require('../src/semantictags')
 
 test('isIconPosition fires inside an unclosed <…> on an .items line', () => {
     const line = 'Switch Kitchen_Light "Kitchen" <li'

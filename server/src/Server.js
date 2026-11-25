@@ -37,6 +37,7 @@ const completion = require('./completion')
 const hover = require('./hover')
 const { extensionOf, OPENHAB_EXTENSIONS } = require('./files')
 const icons = require('./icons')
+const semantictags = require('./semantictags')
 const { codeActionsAt } = require('./codeActions')
 const { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require('./diagnostics')
 const { findItemPositions } = require('./itemPositions')
@@ -327,13 +328,13 @@ class Server {
         }
         // `.items`: `["…"]` semantic-tag completion (B11), plus tags already
         // used in the worktree's .items files.
-        if (icons.isTagPosition(extension, context)) {
+        if (semantictags.isTagPosition(extension, context)) {
             const partial = /\[[^\]=]*"([^"]*)$/.exec(context.before)[1]
             // Make sure the project-local tag set is scanned before use.
             this.getIndex()
             return {
                 isIncomplete: false,
-                items: icons.tagCompletions(partial, this.usedTags()),
+                items: semantictags.tagCompletions(partial, this.usedTags()),
             }
         }
         // `.things`: thing-type UID completion after `Thing `/`Bridge `.

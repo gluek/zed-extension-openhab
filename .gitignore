@@ -18,6 +18,7 @@ extension.wasm
 # Agent-internal working notes (kept locally, not published)
 /plan.md
 /PLAN.md
+/AGENTS.md
 /agents.md
 /zed_extension.md
 /publish_prerequisites.md

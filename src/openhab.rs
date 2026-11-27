@@ -13,7 +13,7 @@ const SERVER_ID: &str = "openhab-lsp";
 /// The bundle itself is *not* embedded in the extension wasm (Zed's
 /// publishing rules forbid bundling a language server); it is fetched
 /// at runtime through the extension API.
-const SERVER_COMMIT: &str = "73a27298b1c54535a8e2562f6fcaaa5fda66d18c";
+const SERVER_COMMIT: &str = "8a1c81f53ff5c2358b3a8dd7f00102f3765fc4e7";
 const SERVER_SCRIPT_NAME: &str = "openhab-language-server.js";
 
 /// SHA-256 of the server bundle at `SERVER_COMMIT` (lower-case hex). The
@@ -21,7 +21,7 @@ const SERVER_SCRIPT_NAME: &str = "openhab-language-server.js";
 /// corrupted, truncated, or mismatched download never replaces a working
 /// script. Bump together with `SERVER_COMMIT` (and `version` in
 /// `extension.toml`) whenever the bundle changes.
-const SERVER_SHA256: &str = "e4885948d303f1d0bcca1f152e9d5087c18d1c81c26ab9020f2285b5ae3c85b6";
+const SERVER_SHA256: &str = "b227b3bc58dfe164a3fd7f3db5921b1a9fb206b5f93da0a6322988913730d8bf";
 
 /// SHA-256 of `data` as lower-case hex.
 ///

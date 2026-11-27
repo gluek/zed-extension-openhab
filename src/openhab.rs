@@ -13,11 +13,11 @@ const SERVER_ID: &str = "openhab-lsp";
 /// The bundle itself is *not* embedded in the extension wasm (Zed's
 /// publishing rules forbid bundling a language server); it is fetched
 /// at runtime through the extension API.
-const SERVER_COMMIT: &str = "04a156386456d0cbea7f46af5b0520c4553f0172";
+const SERVER_COMMIT: &str = "78a9e56baeb17f7459b9baf22f9bb5f0db1fb60a";
 const SERVER_SCRIPT_NAME: &str = "openhab-language-server.js";
 /// Raw file URL pinned to `SERVER_COMMIT`; bump together with `version`
 /// in `extension.toml` when the bundle changes.
-const SERVER_DOWNLOAD_URL: &str = "https://raw.githubusercontent.com/gluek/zed-extension-openhab/04a156386456d0cbea7f46af5b0520c4553f0172/server/openhab-language-server.js";
+const SERVER_DOWNLOAD_URL: &str = "https://raw.githubusercontent.com/gluek/zed-extension-openhab/78a9e56baeb17f7459b9baf22f9bb5f0db1fb60a/server/openhab-language-server.js";
 
 struct OpenHabExtension;
 

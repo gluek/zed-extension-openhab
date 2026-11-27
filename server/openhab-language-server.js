@@ -7672,10 +7672,21 @@ var require_ItemStore = __commonJS({
         this.log = log;
         this.onEvent = onEvent;
         this.items = /* @__PURE__ */ new Map();
+        this._sorted = void 0;
+        this._generation = 0;
         this.config = void 0;
         this.abortController = void 0;
         this.reconnectTimer = void 0;
         this.stopped = true;
+      }
+      /**
+       * Invalidate derived caches (sorted item array, live-tag set) and bump
+       * the change generation, so consumers can key their own caches on it.
+       */
+      _changed() {
+        this._sorted = void 0;
+        this._liveTags = void 0;
+        this._generation += 1;
       }
       /**
        * (Re)connect to an openHAB instance.
@@ -7744,7 +7755,7 @@ var require_ItemStore = __commonJS({
         for (const raw of items) {
           this.items.set(raw.name, new Item(raw));
         }
-        this._liveTags = void 0;
+        this._changed();
       }
       /**
        * Subscribe to the item event stream.
@@ -7846,7 +7857,7 @@ var require_ItemStore = __commonJS({
             break;
         }
         if (changed) {
-          this._liveTags = void 0;
+          this._changed();
           this.onEvent?.();
         }
       }
@@ -7863,7 +7874,7 @@ var require_ItemStore = __commonJS({
           this.reconnectTimer = void 0;
         }
         this.items.clear();
-        this._liveTags = void 0;
+        this._changed();
         if (!keepConfig) {
           this.config = void 0;
         }
@@ -7888,8 +7899,24 @@ var require_ItemStore = __commonJS({
         return this._liveTags;
       }
       /** Items as a plain array, sorted by name for stable completion ordering. */
+      /**
+       * Items as a plain array, sorted by name for stable completion ordering.
+       * Cached until the cache changes (`_changed`): completion fires per
+       * keystroke, and re-sorting and re-allocating every item each time is
+       * pure waste when nothing changed.
+       */
       get all() {
-        return [...this.items.values()].sort((a, b) => a.name.localeCompare(b.name));
+        if (!this._sorted) {
+          this._sorted = [...this.items.values()].sort((a, b) => a.name.localeCompare(b.name));
+        }
+        return this._sorted;
+      }
+      /**
+       * Monotonic counter bumped whenever the item cache changed, so consumers
+       * (the completion-item cache in Server) can invalidate cheaply.
+       */
+      get generation() {
+        return this._generation;
       }
       get size() {
         return this.items.size;
@@ -8625,13 +8652,10 @@ var require_icons = __commonJS({
   }
 });
 
-// src/itemIndex.js
-var require_itemIndex = __commonJS({
-  "src/itemIndex.js"(exports2, module2) {
+// src/itemParse.js
+var require_itemParse = __commonJS({
+  "src/itemParse.js"(exports2, module2) {
     "use strict";
-    var fs = require("node:fs");
-    var { pathToFileURL } = require("node:url");
-    var { collectFiles } = require_files2();
     var ITEM_TYPES = [
       "Color",
       "Contact",
@@ -8694,6 +8718,41 @@ var require_itemIndex = __commonJS({
       }
       return definitions;
     }
+    var TAG_LIST_LINE_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g;
+    var TAG_VALUE_RE = /"([^"]*)"|'([^']*)'/g;
+    function tagListValues(line) {
+      const out = [];
+      TAG_LIST_LINE_RE.lastIndex = 0;
+      let m;
+      while ((m = TAG_LIST_LINE_RE.exec(line)) !== null) {
+        if (m[0].includes("=")) {
+          continue;
+        }
+        const bracket = m.index + m[0].indexOf("[");
+        const bracketStart = bracket + 1;
+        TAG_VALUE_RE.lastIndex = 0;
+        let v;
+        while ((v = TAG_VALUE_RE.exec(m[1])) !== null) {
+          const tag = v[1] ?? v[2];
+          if (tag) {
+            out.push({ tag, character: bracketStart + v.index + 1, bracket });
+          }
+        }
+      }
+      return out;
+    }
+    module2.exports = { ITEM_TYPES, NAME_RE, parseDefinitionLine, parseItemsFile, tagListValues };
+  }
+});
+
+// src/itemIndex.js
+var require_itemIndex = __commonJS({
+  "src/itemIndex.js"(exports2, module2) {
+    "use strict";
+    var fs = require("node:fs");
+    var { pathToFileURL } = require("node:url");
+    var { collectFiles } = require_files2();
+    var { parseItemsFile, parseDefinitionLine, NAME_RE, ITEM_TYPES, tagListValues } = require_itemParse();
     function collectItemsFiles(rootDir) {
       return collectFiles(rootDir, (name) => name.endsWith(".items"));
     }
@@ -8705,11 +8764,13 @@ var require_itemIndex = __commonJS({
         this.rootDir = rootDir;
         this.definitions = /* @__PURE__ */ new Map();
         this.mtimes = /* @__PURE__ */ new Map();
+        this.namesByFile = /* @__PURE__ */ new Map();
+        this.tagUsages = /* @__PURE__ */ new Map();
+        this.tagsByFile = /* @__PURE__ */ new Map();
       }
       /** Rescan the whole worktree (synchronous). */
       scan() {
-        this.definitions.clear();
-        this.mtimes.clear();
+        this._clear();
         for (const file of collectItemsFiles(this.rootDir)) {
           this.scanFile(file);
         }
@@ -8720,13 +8781,19 @@ var require_itemIndex = __commonJS({
        * does not fire hundreds of concurrent reads on a large worktree.
        */
       async scanAsync() {
-        this.definitions.clear();
-        this.mtimes.clear();
+        this._clear();
         const files = collectItemsFiles(this.rootDir);
         const BATCH = 16;
         for (let i = 0; i < files.length; i += BATCH) {
           await Promise.all(files.slice(i, i + BATCH).map((file) => this.scanFileAsync(file)));
         }
+      }
+      _clear() {
+        this.definitions.clear();
+        this.mtimes.clear();
+        this.namesByFile.clear();
+        this.tagUsages.clear();
+        this.tagsByFile.clear();
       }
       /**
        * (Re)scan a single file if its mtime changed since the last scan.
@@ -8783,18 +8850,58 @@ var require_itemIndex = __commonJS({
         const previous = this.mtimes.get(file);
         return previous !== void 0 && Math.abs(previous - stat.mtimeMs) < 2;
       }
-      /** Replace this file's definitions in the index. */
+      /** Replace this file's definitions and tags in the index. */
       _store(file, stat, text) {
-        for (const [name, def] of this.definitions) {
-          if (def.file === file) {
-            this.definitions.delete(name);
-          }
-        }
+        this._dropFile(file);
         const uri = pathToFileURL(file).href;
+        const names = /* @__PURE__ */ new Set();
         for (const def of parseItemsFile(text)) {
+          names.add(def.name);
           this.definitions.set(def.name, { ...def, uri, file, mtimeMs: stat.mtimeMs });
         }
+        this.namesByFile.set(file, names);
+        const tags = /* @__PURE__ */ new Set();
+        const lines = text.split(/\r?\n/);
+        for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+          for (const { tag } of tagListValues(lines[lineNo])) {
+            tags.add(tag);
+            const usages = this.tagUsages.get(tag);
+            if (usages) {
+              usages.push({ file, line: lineNo });
+            } else {
+              this.tagUsages.set(tag, [{ file, line: lineNo }]);
+            }
+          }
+        }
+        this.tagsByFile.set(file, tags);
         this.mtimes.set(file, stat.mtimeMs);
+      }
+      /** Forget every index entry that came from `file` (deleted or rescanned). */
+      _dropFile(file) {
+        const names = this.namesByFile.get(file);
+        if (names) {
+          for (const name of names) {
+            this.definitions.delete(name);
+          }
+          this.namesByFile.delete(file);
+        }
+        const tags = this.tagsByFile.get(file);
+        if (tags) {
+          for (const tag of tags) {
+            const usages = this.tagUsages.get(tag);
+            if (!usages) {
+              continue;
+            }
+            const kept = usages.filter((u) => u.file !== file);
+            if (kept.length) {
+              this.tagUsages.set(tag, kept);
+            } else {
+              this.tagUsages.delete(tag);
+            }
+          }
+          this.tagsByFile.delete(file);
+        }
+        this.mtimes.delete(file);
       }
       /** Refresh a single file (called from didChangeWatchedFiles). */
       refresh(file) {
@@ -8802,6 +8909,10 @@ var require_itemIndex = __commonJS({
           return false;
         }
         return this.scanFile(file);
+      }
+      /** Forget a file deleted from disk: definitions and tags. */
+      removeFile(file) {
+        this._dropFile(file);
       }
       /**
        * Ensure the index is fresh for a file that may have changed on disk,
@@ -8817,6 +8928,13 @@ var require_itemIndex = __commonJS({
       }
       get size() {
         return this.definitions.size;
+      }
+      /**
+       * Tags used anywhere in the worktree's `.items` files (offered before the
+       * built-in ontology list so project-local tags complete first).
+       */
+      get usedTags() {
+        return new Set(this.tagUsages.keys());
       }
     };
     module2.exports = {
@@ -8967,7 +9085,7 @@ var require_references = __commonJS({
     var fs = require("node:fs");
     var path = require("node:path");
     var { pathToFileURL } = require("node:url");
-    var { parseDefinitionLine } = require_itemIndex();
+    var { parseDefinitionLine } = require_itemParse();
     var { collectFiles } = require_files2();
     var SOURCE_EXTENSIONS = [".items", ".rules", ".script", ".sitemap", ".persist"];
     var WORD_CHAR = /[A-Za-z0-9_$]/;
@@ -9100,9 +9218,108 @@ var require_references = __commonJS({
       }
       return locations;
     }
+    var ReferenceIndex = class {
+      /**
+       * @param {{rootDir: string}} options
+       */
+      constructor({ rootDir }) {
+        this.rootDir = rootDir;
+        this.files = /* @__PURE__ */ new Map();
+      }
+      /** All reference locations of `name` across the cached files (plus `extraFiles`, read fresh). */
+      findReferences(name, { extraFiles = [] } = {}) {
+        const locations = [];
+        const seen = /* @__PURE__ */ new Set();
+        for (const file of [...this.files.keys(), ...extraFiles]) {
+          if (seen.has(file)) {
+            continue;
+          }
+          seen.add(file);
+          const cached = this.files.get(file);
+          if (cached) {
+            const extension = path.extname(file).slice(1);
+            for (const ref of findReferencesInText(cached.text, name, { extension })) {
+              locations.push({ uri: pathToFileURL(file).href, range: ref.range });
+            }
+          } else {
+            locations.push(...findReferencesInFile(file, name));
+          }
+        }
+        return locations;
+      }
+      /** (Re)scan the whole worktree asynchronously, in bounded batches. */
+      async scanAsync() {
+        this.files.clear();
+        const files = collectSourceFiles(this.rootDir);
+        const BATCH = 16;
+        for (let i = 0; i < files.length; i += BATCH) {
+          await Promise.all(files.slice(i, i + BATCH).map((file) => this.scanFileAsync(file)));
+        }
+        return this.files.size;
+      }
+      async scanFileAsync(file) {
+        let stat;
+        try {
+          stat = await fs.promises.stat(file);
+        } catch {
+          return false;
+        }
+        if (this._unchanged(file, stat)) {
+          return false;
+        }
+        let text;
+        try {
+          text = await fs.promises.readFile(file, "utf8");
+        } catch {
+          return false;
+        }
+        this.files.set(file, { mtimeMs: stat.mtimeMs, text });
+        return true;
+      }
+      /** Sync single-file (re)scan — watched-file events and tests. */
+      scanFile(file) {
+        let stat;
+        try {
+          stat = fs.statSync(file);
+        } catch {
+          return false;
+        }
+        if (this._unchanged(file, stat)) {
+          return false;
+        }
+        let text;
+        try {
+          text = fs.readFileSync(file, "utf8");
+        } catch {
+          return false;
+        }
+        this.files.set(file, { mtimeMs: stat.mtimeMs, text });
+        return true;
+      }
+      /** Refresh one file if it is a source file and its mtime changed. */
+      refresh(file) {
+        if (!SOURCE_EXTENSIONS.includes(path.extname(file))) {
+          return false;
+        }
+        return this.scanFile(file);
+      }
+      /** Forget a file deleted from disk. */
+      removeFile(file) {
+        return this.files.delete(file);
+      }
+      /** mtime check, same 2 ms tolerance as `ItemIndex`. */
+      _unchanged(file, stat) {
+        const previous = this.files.get(file);
+        return previous !== void 0 && Math.abs(previous.mtimeMs - stat.mtimeMs) < 2;
+      }
+      get size() {
+        return this.files.size;
+      }
+    };
     module2.exports = {
       SOURCE_EXTENSIONS,
       WORD_CHAR,
+      ReferenceIndex,
       collectSourceFiles,
       findReferencesInFile,
       findReferencesInText,
@@ -9117,7 +9334,7 @@ var require_itemOccurrences = __commonJS({
   "src/itemOccurrences.js"(exports2, module2) {
     "use strict";
     var { maskStringsAndComments } = require_references();
-    var { parseDefinitionLine } = require_itemIndex();
+    var { parseDefinitionLine, tagListValues } = require_itemParse();
     var ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g;
     var ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)(?![A-Za-z0-9_$])/g;
     var MEMBER_OF_RE = /Member\s+of\s*\(\s*([A-Za-z_]\w*)(\s*\))/g;
@@ -9254,29 +9471,6 @@ var require_itemOccurrences = __commonJS({
           range: rangeAt(lineOffsets, c.index, c.name),
           isDefinition: !!c.isDefinition
         });
-      }
-      return out;
-    }
-    var TAG_LIST_LINE_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g;
-    var TAG_VALUE_RE = /"([^"]*)"|'([^']*)'/g;
-    function tagListValues(line) {
-      const out = [];
-      TAG_LIST_LINE_RE.lastIndex = 0;
-      let m;
-      while ((m = TAG_LIST_LINE_RE.exec(line)) !== null) {
-        if (m[0].includes("=")) {
-          continue;
-        }
-        const bracket = m.index + m[0].indexOf("[");
-        const bracketStart = bracket + 1;
-        TAG_VALUE_RE.lastIndex = 0;
-        let v;
-        while ((v = TAG_VALUE_RE.exec(m[1])) !== null) {
-          const tag = v[1] ?? v[2];
-          if (tag) {
-            out.push({ tag, character: bracketStart + v.index + 1, bracket });
-          }
-        }
       }
       return out;
     }
@@ -9616,13 +9810,13 @@ var require_Server = __commonJS({
       ProposedFeatures,
       DidChangeConfigurationNotification,
       DidChangeWatchedFilesNotification,
+      FileChangeType,
       SemanticTokensBuilder,
       SemanticTokensRequest,
       SemanticTokenTypes
     } = require_main4();
     var { TextDocument: TextDocument2 } = (init_main(), __toCommonJS(main_exports));
     var { fileURLToPath } = require("node:url");
-    var fs = require("node:fs");
     var ItemStore = require_ItemStore();
     var completion = require_completion();
     var hover = require_hover();
@@ -9631,9 +9825,9 @@ var require_Server = __commonJS({
     var semantictags = require_semantictags();
     var { codeActionsAt } = require_codeActions();
     var { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require_diagnostics();
-    var { findItemOccurrences, tagListValues } = require_itemOccurrences();
-    var { ItemIndex, NAME_RE, collectItemsFiles } = require_itemIndex();
-    var { findReferencesInWorktree } = require_references();
+    var { findItemOccurrences } = require_itemOccurrences();
+    var { ItemIndex, NAME_RE } = require_itemIndex();
+    var { ReferenceIndex } = require_references();
     var { ThingTypeStore } = require_thingTypes();
     var { ThingStore } = require_things();
     var { debounce } = require_rest();
@@ -9704,16 +9898,22 @@ var require_Server = __commonJS({
           this.connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
         });
         this.index = null;
+        this.referenceIndex = null;
         this.connection.onDidChangeWatchedFiles((params) => {
-          let tagsDirty = false;
           for (const change of params.changes) {
-            if (change.uri.endsWith(".items")) {
-              this.index?.refresh(fileURLToPath(change.uri));
-              tagsDirty = true;
+            let file = null;
+            try {
+              file = fileURLToPath(change.uri);
+            } catch {
+              continue;
             }
-          }
-          if (tagsDirty) {
-            this.rescanUsedTags().catch((error) => this.log(`tag rescan failed: ${error.message}`));
+            if (change.type === FileChangeType.Deleted) {
+              this.index?.removeFile(file);
+              this.referenceIndex?.removeFile(file);
+              continue;
+            }
+            this.index?.refresh(file);
+            this.referenceIndex?.refresh(file);
           }
         });
         this.connection.listen();
@@ -9751,7 +9951,6 @@ var require_Server = __commonJS({
           this.index = new ItemIndex({ rootDir });
           this.indexScan = this.index.scanAsync().then(() => {
             this.log(`indexed ${this.index.size} item definitions under ${rootDir}`);
-            return this.rescanUsedTags();
           }).catch((error) => this.log(`index scan failed: ${error.message}`));
         }
         return this.index;
@@ -9761,6 +9960,33 @@ var require_Server = __commonJS({
         const index = this.getIndex();
         if (this.indexScan) {
           await this.indexScan;
+        }
+        return index;
+      }
+      /**
+       * Lazily create the reference index (cached text of the worktree's
+       * openHAB source files) and kick off its initial scan. References and
+       * rename search this cache instead of re-walking and re-reading the
+       * worktree synchronously on every request.
+       */
+      getReferenceIndex() {
+        if (!this.referenceIndex) {
+          const rootDir = this.rootDir;
+          if (!rootDir) {
+            return null;
+          }
+          this.referenceIndex = new ReferenceIndex({ rootDir });
+          this.referenceScan = this.referenceIndex.scanAsync().then((files) => {
+            this.log(`cached ${files} openHAB source files under ${rootDir}`);
+          }).catch((error) => this.log(`reference scan failed: ${error.message}`));
+        }
+        return this.referenceIndex;
+      }
+      /** The reference index, awaited until the initial scan has finished. */
+      async readyReferenceIndex() {
+        const index = this.getReferenceIndex();
+        if (this.referenceScan) {
+          await this.referenceScan;
         }
         return index;
       }
@@ -9905,13 +10131,24 @@ var require_Server = __commonJS({
         if (!completion.offersItems(extension, context)) {
           return { isIncomplete: false, items: [] };
         }
-        return { isIncomplete: false, items: completion.itemCompletions(this.store.all) };
+        return { isIncomplete: false, items: this.itemCompletionItems() };
+      }
+      /**
+       * Item-name completions, cached until the live item cache changes (keyed
+       * on the store's generation). Completion fires per keystroke; rebuilding
+       * thousands of items every time nothing changed is pure waste.
+       */
+      itemCompletionItems() {
+        if (!this._itemCompletions || this._itemCompletionsGeneration !== this.store.generation) {
+          this._itemCompletions = completion.itemCompletions(this.store.all);
+          this._itemCompletionsGeneration = this.store.generation;
+        }
+        return this._itemCompletions;
       }
       /** Hover: live state of the item under the cursor, when it is a known item. */
       getHover(params) {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
-          this.log(`hover: document not found: ${params.textDocument.uri}`);
           return null;
         }
         const word = hover.wordAt(document, params.position);
@@ -9920,7 +10157,6 @@ var require_Server = __commonJS({
         }
         const item = this.store.items.get(word);
         if (!item) {
-          this.log(`hover: "${word}" at ${params.position.line}:${params.position.character} is not a known item (${this.store.size} cached)`);
           return null;
         }
         return hover.hoverFor(item);
@@ -9974,8 +10210,9 @@ var require_Server = __commonJS({
         if (!rootDir) {
           return [];
         }
+        const referenceIndex = await this.readyReferenceIndex();
         const extraFiles = this.openDocumentPaths();
-        const locations = findReferencesInWorktree(rootDir, word, { extraFiles });
+        const locations = referenceIndex && referenceIndex.findReferences(word, { extraFiles }) || [];
         if (params.context?.includeDeclaration) {
           const index = await this.readyIndex();
           const def = index && index.get(word);
@@ -10027,8 +10264,9 @@ var require_Server = __commonJS({
         if (!rootDir) {
           return null;
         }
+        const referenceIndex = await this.readyReferenceIndex();
         const extraFiles = this.openDocumentPaths();
-        const locations = findReferencesInWorktree(rootDir, word, { extraFiles });
+        const locations = referenceIndex && referenceIndex.findReferences(word, { extraFiles }) || [];
         const index = await this.readyIndex();
         const def = index && index.get(word);
         if (def) {
@@ -10215,58 +10453,16 @@ var require_Server = __commonJS({
         }
       }
       /**
-       * Semantic tags already used in the worktree's `.items` files (scanned
-       * once, cached, refreshed on watched-file events). Offered before the
-       * built-in ontology list so project-local tags complete first.
+       * Semantic tags already used in the worktree's `.items` files — extracted
+       * by the index scan (one read feeds definitions and tags) and refreshed
+       * per file on watched-file events. Offered before the built-in ontology
+       * list so project-local tags complete first.
        *
        * @returns {Set<string>}
        */
       usedTags() {
-        if (!this._usedTags) {
-          this._usedTags = /* @__PURE__ */ new Set();
-        }
-        return this._usedTags;
-      }
-      /**
-       * (Re)scan the worktree's .items files for `["…"]` tag values (shared
-       * extraction: `tagListValues` in itemOccurrences.js, also used by
-       * diagnostics.js). Populates `_usedTags` (flat set, for completion) and
-       * `_tagUsages` (tag → [{file, line}], for position-aware diagnostics: a
-       * tag used only on the line being validated is NOT "project-known").
-       */
-      async rescanUsedTags() {
-        const rootDir = this.rootDir;
-        if (!rootDir) {
-          return;
-        }
-        const tags = /* @__PURE__ */ new Set();
-        const usages = /* @__PURE__ */ new Map();
-        const files = collectItemsFiles(rootDir);
-        const BATCH = 16;
-        for (let i = 0; i < files.length; i += BATCH) {
-          await Promise.all(
-            files.slice(i, i + BATCH).map(async (file) => {
-              let text;
-              try {
-                text = await fs.promises.readFile(file, "utf8");
-              } catch {
-                return;
-              }
-              const lines = text.split(/\r?\n/);
-              for (let lineNo = 0; lineNo < lines.length; lineNo++) {
-                for (const { tag } of tagListValues(lines[lineNo])) {
-                  tags.add(tag);
-                  if (!usages.has(tag)) {
-                    usages.set(tag, []);
-                  }
-                  usages.get(tag).push({ file, line: lineNo });
-                }
-              }
-            })
-          );
-        }
-        this._usedTags = tags;
-        this._tagUsages = usages;
+        const index = this.getIndex();
+        return index ? index.usedTags : /* @__PURE__ */ new Set();
       }
       /**
        * Position-aware project-known check for the unknown-tag diagnostic: a
@@ -10276,7 +10472,7 @@ var require_Server = __commonJS({
        * count.
        */
       isKnownTagAt(tag, exclude) {
-        const usages = this._tagUsages?.get(tag);
+        const usages = this.index?.tagUsages.get(tag);
         if (usages && usages.some((u) => !(u.file === exclude.file && u.line === exclude.line))) {
           return true;
         }

@@ -25,13 +25,13 @@ const {
     ProposedFeatures,
     DidChangeConfigurationNotification,
     DidChangeWatchedFilesNotification,
+    FileChangeType,
     SemanticTokensBuilder,
     SemanticTokensRequest,
     SemanticTokenTypes,
 } = require('vscode-languageserver')
 const { TextDocument } = require('vscode-languageserver-textdocument')
 const { fileURLToPath } = require('node:url')
-const fs = require('node:fs')
 
 const ItemStore = require('./ItemStore')
 const completion = require('./completion')
@@ -41,9 +41,9 @@ const icons = require('./icons')
 const semantictags = require('./semantictags')
 const { codeActionsAt } = require('./codeActions')
 const { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require('./diagnostics')
-const { findItemOccurrences, tagListValues } = require('./itemOccurrences')
-const { ItemIndex, NAME_RE, collectItemsFiles } = require('./itemIndex')
-const { findReferencesInWorktree } = require('./references')
+const { findItemOccurrences } = require('./itemOccurrences')
+const { ItemIndex, NAME_RE } = require('./itemIndex')
+const { ReferenceIndex } = require('./references')
 const { ThingTypeStore } = require('./thingTypes')
 const { ThingStore } = require('./things')
 const { debounce } = require('./rest')
@@ -152,20 +152,30 @@ class Server {
             this.connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] })
         })
 
-        // Item definitions in the worktree's .items files (go-to-definition /
-        // references / rename). Root comes from initialize params; scanned
-        // lazily on first use and refreshed on watched-file events.
+        // Item definitions + tags in the worktree's .items files (go-to-definition /
+        // references / rename / tag completion). Root comes from initialize
+        // params; scanned lazily on first use and refreshed on watched-file
+        // events — one mtime-checked rescan of the changed file per event,
+        // never a full-worktree rescan.
         this.index = null
+        this.referenceIndex = null
         this.connection.onDidChangeWatchedFiles((params) => {
-            let tagsDirty = false
             for (const change of params.changes) {
-                if (change.uri.endsWith('.items')) {
-                    this.index?.refresh(fileURLToPath(change.uri))
-                    tagsDirty = true
+                let file = null
+                try {
+                    file = fileURLToPath(change.uri)
+                } catch {
+                    continue // not a file:// URI
                 }
-            }
-            if (tagsDirty) {
-                this.rescanUsedTags().catch((error) => this.log(`tag rescan failed: ${error.message}`))
+                if (change.type === FileChangeType.Deleted) {
+                    this.index?.removeFile(file)
+                    this.referenceIndex?.removeFile(file)
+                    continue
+                }
+                // Both indexes skip non-matching extensions and unchanged
+                // mtimes internally.
+                this.index?.refresh(file)
+                this.referenceIndex?.refresh(file)
             }
         })
 
@@ -210,7 +220,6 @@ class Server {
                 .scanAsync()
                 .then(() => {
                     this.log(`indexed ${this.index.size} item definitions under ${rootDir}`)
-                    return this.rescanUsedTags()
                 })
                 .catch((error) => this.log(`index scan failed: ${error.message}`))
         }
@@ -222,6 +231,38 @@ class Server {
         const index = this.getIndex()
         if (this.indexScan) {
             await this.indexScan
+        }
+        return index
+    }
+
+    /**
+     * Lazily create the reference index (cached text of the worktree's
+     * openHAB source files) and kick off its initial scan. References and
+     * rename search this cache instead of re-walking and re-reading the
+     * worktree synchronously on every request.
+     */
+    getReferenceIndex() {
+        if (!this.referenceIndex) {
+            const rootDir = this.rootDir
+            if (!rootDir) {
+                return null
+            }
+            this.referenceIndex = new ReferenceIndex({ rootDir })
+            this.referenceScan = this.referenceIndex
+                .scanAsync()
+                .then((files) => {
+                    this.log(`cached ${files} openHAB source files under ${rootDir}`)
+                })
+                .catch((error) => this.log(`reference scan failed: ${error.message}`))
+        }
+        return this.referenceIndex
+    }
+
+    /** The reference index, awaited until the initial scan has finished. */
+    async readyReferenceIndex() {
+        const index = this.getReferenceIndex()
+        if (this.referenceScan) {
+            await this.referenceScan
         }
         return index
     }
@@ -394,14 +435,26 @@ class Server {
         if (!completion.offersItems(extension, context)) {
             return { isIncomplete: false, items: [] }
         }
-        return { isIncomplete: false, items: completion.itemCompletions(this.store.all) }
+        return { isIncomplete: false, items: this.itemCompletionItems() }
+    }
+
+    /**
+     * Item-name completions, cached until the live item cache changes (keyed
+     * on the store's generation). Completion fires per keystroke; rebuilding
+     * thousands of items every time nothing changed is pure waste.
+     */
+    itemCompletionItems() {
+        if (!this._itemCompletions || this._itemCompletionsGeneration !== this.store.generation) {
+            this._itemCompletions = completion.itemCompletions(this.store.all)
+            this._itemCompletionsGeneration = this.store.generation
+        }
+        return this._itemCompletions
     }
 
     /** Hover: live state of the item under the cursor, when it is a known item. */
     getHover(params) {
         const document = this.documents.get(params.textDocument.uri)
         if (!document) {
-            this.log(`hover: document not found: ${params.textDocument.uri}`)
             return null
         }
         const word = hover.wordAt(document, params.position)
@@ -410,7 +463,8 @@ class Server {
         }
         const item = this.store.items.get(word)
         if (!item) {
-            this.log(`hover: "${word}" at ${params.position.line}:${params.position.character} is not a known item (${this.store.size} cached)`)
+            // Most hovered words are not items (keywords, locals, labels);
+            // a missing hover is never an error, so stay silent.
             return null
         }
         return hover.hoverFor(item)
@@ -469,9 +523,10 @@ class Server {
         if (!rootDir) {
             return []
         }
+        const referenceIndex = await this.readyReferenceIndex()
         // Include any open documents even if outside the scanned root.
         const extraFiles = this.openDocumentPaths()
-        const locations = findReferencesInWorktree(rootDir, word, { extraFiles })
+        const locations = (referenceIndex && referenceIndex.findReferences(word, { extraFiles })) || []
         if (params.context?.includeDeclaration) {
             const index = await this.readyIndex()
             const def = index && index.get(word)
@@ -525,8 +580,9 @@ class Server {
         if (!rootDir) {
             return null
         }
+        const referenceIndex = await this.readyReferenceIndex()
         const extraFiles = this.openDocumentPaths()
-        const locations = findReferencesInWorktree(rootDir, word, { extraFiles })
+        const locations = (referenceIndex && referenceIndex.findReferences(word, { extraFiles })) || []
         const index = await this.readyIndex()
         const def = index && index.get(word)
         if (def) {
@@ -729,64 +785,16 @@ class Server {
     }
 
     /**
-     * Semantic tags already used in the worktree's `.items` files (scanned
-     * once, cached, refreshed on watched-file events). Offered before the
-     * built-in ontology list so project-local tags complete first.
+     * Semantic tags already used in the worktree's `.items` files — extracted
+     * by the index scan (one read feeds definitions and tags) and refreshed
+     * per file on watched-file events. Offered before the built-in ontology
+     * list so project-local tags complete first.
      *
      * @returns {Set<string>}
      */
     usedTags() {
-        if (!this._usedTags) {
-            this._usedTags = new Set()
-        }
-        return this._usedTags
-    }
-
-    /**
-     * (Re)scan the worktree's .items files for `["…"]` tag values (shared
-     * extraction: `tagListValues` in itemOccurrences.js, also used by
-     * diagnostics.js). Populates `_usedTags` (flat set, for completion) and
-     * `_tagUsages` (tag → [{file, line}], for position-aware diagnostics: a
-     * tag used only on the line being validated is NOT "project-known").
-     */
-    async rescanUsedTags() {
-        const rootDir = this.rootDir
-        if (!rootDir) {
-            return
-        }
-        const tags = new Set()
-        const usages = new Map()
-        // Batched async reads: a large worktree must not block the event loop
-        // with readFileSync nor fire hundreds of readFile calls at once.
-        const files = collectItemsFiles(rootDir)
-        const BATCH = 16
-        for (let i = 0; i < files.length; i += BATCH) {
-            await Promise.all(
-                files.slice(i, i + BATCH).map(async (file) => {
-                    let text
-                    try {
-                        text = await fs.promises.readFile(file, 'utf8')
-                    } catch {
-                        return
-                    }
-                    const lines = text.split(/\r?\n/)
-                    for (let lineNo = 0; lineNo < lines.length; lineNo++) {
-                        // Shared tag-list extraction (also used by
-                        // diagnostics.js): a […] after the label string,
-                        // without '=' inside (Location config excluded).
-                        for (const { tag } of tagListValues(lines[lineNo])) {
-                            tags.add(tag)
-                            if (!usages.has(tag)) {
-                                usages.set(tag, [])
-                            }
-                            usages.get(tag).push({ file, line: lineNo })
-                        }
-                    }
-                }),
-            )
-        }
-        this._usedTags = tags
-        this._tagUsages = usages
+        const index = this.getIndex()
+        return index ? index.usedTags : new Set()
     }
 
     /**
@@ -797,7 +805,7 @@ class Server {
      * count.
      */
     isKnownTagAt(tag, exclude) {
-        const usages = this._tagUsages?.get(tag)
+        const usages = this.index?.tagUsages.get(tag)
         if (usages && usages.some((u) => !(u.file === exclude.file && u.line === exclude.line))) {
             return true
         }

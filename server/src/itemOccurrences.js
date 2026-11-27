@@ -6,7 +6,8 @@
  *    the occurrences by `isKnown` and drops definitions),
  *  - inlay hints / semantic tokens in `Server.js` (uses the occurrences with
  *    their ranges directly; the old `itemPositions.js` module),
- *  - `Server.rescanUsedTags` via `tagListValues` (project-local tag scan).
+ *  - the item index's tag scan via `tagListValues` (project-local tags; the
+ *    parser itself lives in `itemParse.js`).
  *
  * The consumers previously each re-implemented the same regexes and drifted
  * (e.g. the `Item X changed` trigger regex differed between diagnostics and
@@ -19,7 +20,7 @@
 'use strict'
 
 const { maskStringsAndComments } = require('./references')
-const { parseDefinitionLine } = require('./itemIndex')
+const { parseDefinitionLine, tagListValues } = require('./itemParse')
 
 /** Member accesses that only make sense on items. Group 2 = trailing `.member`. */
 const ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g
@@ -221,44 +222,8 @@ function findItemOccurrences(text, extension) {
 }
 
 /**
- * The tag list of an `.items` definition line: a `["…", …]` bracket that
- * follows the label string (and optional `<icon>`). Location config
- * (`[ latitude=… ]`) contains `=` and is not a tag list.
+ * The quoted values of every tag list on `line` — shared with the item
+ * index's tag scan. The parser lives in `itemParse.js` and is re-exported
+ * here so existing importers (diagnostics, tests) are unaffected.
  */
-const TAG_LIST_LINE_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g
-
-/** One quoted value inside a tag list. */
-const TAG_VALUE_RE = /"([^"]*)"|'([^']*)'/g
-
-/**
- * The quoted values of every tag list on `line`.
- *
- * @param {string} line raw line (offsets must stay true to the document)
- * @returns {Array<{tag: string, character: number, bracket: number}>}
- *   `character` is the opening quote of the value, `bracket` the `[` — pass
- *   the masked line at `bracket` to test whether the list sits inside a
- *   string/comment.
- */
-function tagListValues(line) {
-    const out = []
-    TAG_LIST_LINE_RE.lastIndex = 0
-    let m
-    while ((m = TAG_LIST_LINE_RE.exec(line)) !== null) {
-        if (m[0].includes('=')) {
-            continue // Location config, not tags
-        }
-        const bracket = m.index + m[0].indexOf('[')
-        const bracketStart = bracket + 1
-        TAG_VALUE_RE.lastIndex = 0
-        let v
-        while ((v = TAG_VALUE_RE.exec(m[1])) !== null) {
-            const tag = v[1] ?? v[2]
-            if (tag) {
-                out.push({ tag, character: bracketStart + v.index + 1, bracket })
-            }
-        }
-    }
-    return out
-}
-
 module.exports = { findItemOccurrences, tagListValues, analyzeText, rangeAt }

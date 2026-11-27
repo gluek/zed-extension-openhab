@@ -7,6 +7,7 @@ const os = require('node:os')
 const path = require('node:path')
 
 const {
+    ReferenceIndex,
     collectSourceFiles,
     findReferencesInFile,
     findReferencesInText,
@@ -121,5 +122,89 @@ test('findReferencesInFile + findReferencesInWorktree over the fixtures', () => 
         assert.ok(all.every((l) => !l.uri.endsWith('.items')))
     } finally {
         fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('ReferenceIndex scans once and serves findReferences from the cache', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-refs-'))
+    try {
+        fs.copyFileSync(path.join(FIXTURES, 'sample.items'), path.join(dir, 'sample.items'))
+        fs.copyFileSync(path.join(FIXTURES, 'sample.rules'), path.join(dir, 'sample.rules'))
+        fs.writeFileSync(path.join(dir, 'ignore.txt'), 'Kitchen_Light\n')
+
+        const index = new ReferenceIndex({ rootDir: dir })
+        await index.scanAsync()
+        assert.strictEqual(index.size, 2) // .items + .rules, not ignore.txt
+
+        const refs = index.findReferences('Kitchen_Light')
+        assert.ok(refs.length >= 1)
+        assert.ok(refs.every((l) => l.uri.endsWith('sample.rules')))
+
+        // Cached: deleting the file from disk does not change the result,
+        // which proves findReferences does not re-read per request.
+        fs.rmSync(path.join(dir, 'sample.rules'))
+        assert.strictEqual(index.findReferences('Kitchen_Light').length, refs.length)
+
+        // removeFile drops the cached text; the references disappear.
+        index.removeFile(path.join(dir, 'sample.rules'))
+        assert.deepStrictEqual(index.findReferences('Kitchen_Light'), [])
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('ReferenceIndex.refresh rescans one file when its mtime changed', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-refs-'))
+    try {
+        const rules = path.join(dir, 'x.rules')
+        fs.writeFileSync(rules, 'rule "r"\nwhen\n    Item Lamp changed\nthen\nend\n')
+        const index = new ReferenceIndex({ rootDir: dir })
+        await index.scanAsync()
+        assert.strictEqual(index.findReferences('Lamp').length, 1)
+
+        // Same-mtime rewrite: no rescan (pin the mtime inside the tolerance).
+        const scanned = fs.statSync(rules).mtimeMs
+        fs.writeFileSync(rules, 'rule "r"\nwhen\n    Item Ghost changed\nthen\nend\n')
+        const pinned = new Date(scanned + 0.5)
+        fs.utimesSync(rules, pinned, pinned)
+        assert.strictEqual(index.refresh(rules), false)
+        assert.strictEqual(index.findReferences('Lamp').length, 1)
+
+        // Clearly newer mtime: the rescan replaces the cached text.
+        const later = new Date(scanned + 5000)
+        fs.utimesSync(rules, later, later)
+        assert.strictEqual(index.refresh(rules), true)
+        assert.strictEqual(index.findReferences('Lamp').length, 0)
+        assert.strictEqual(index.findReferences('Ghost').length, 1)
+
+        // Non-source extensions are never cached.
+        fs.writeFileSync(path.join(dir, 'notes.txt'), 'Lamp\n')
+        assert.strictEqual(index.refresh(path.join(dir, 'notes.txt')), false)
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('ReferenceIndex.findReferences reads extraFiles outside the cache fresh, deduplicated', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-refs-'))
+    try {
+        fs.copyFileSync(path.join(FIXTURES, 'sample.items'), path.join(dir, 'sample.items'))
+        const outside = path.join(os.tmpdir(), 'openhab-refs-extra', 'extra.rules')
+        fs.mkdirSync(path.dirname(outside), { recursive: true })
+        fs.writeFileSync(outside, 'rule "e"\nwhen\n    Item Kitchen_Light changed\nthen\nend\n')
+
+        const index = new ReferenceIndex({ rootDir: dir })
+        await index.scanAsync()
+
+        // The extra file (outside the scanned root) is read from disk;
+        // duplicated entries and files already in the cache are deduplicated.
+        const refs = index.findReferences('Kitchen_Light', {
+            extraFiles: [outside, outside, path.join(dir, 'sample.items')],
+        })
+        assert.strictEqual(refs.length, 1)
+        assert.ok(refs[0].uri.endsWith('extra.rules'))
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+        fs.rmSync(path.join(os.tmpdir(), 'openhab-refs-extra'), { recursive: true, force: true })
     }
 })

@@ -158,6 +158,83 @@ test('ItemIndex.refresh picks up edits only when mtime changes', () => {
     }
 })
 
+test('ItemIndex extracts semantic tags in the same scan as definitions', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-index-'))
+    try {
+        fs.writeFileSync(path.join(dir, 'a.items'), 'Switch A "a" ["Lighting"]\n')
+        fs.writeFileSync(path.join(dir, 'b.items'), 'Switch B "b" ["Lighting", "GroundFloor"]\n')
+        // Location config has no tag values (the `=` excludes it).
+        fs.writeFileSync(path.join(dir, 'c.items'), 'Location Home "h" [latitude=1.0, longitude=2.0]\n')
+
+        const index = new ItemIndex({ rootDir: dir })
+        index.scan()
+        assert.deepStrictEqual([...index.usedTags].sort(), ['GroundFloor', 'Lighting'])
+        const lighting = index.tagUsages.get('Lighting')
+        assert.deepStrictEqual(
+            lighting.map((u) => `${path.basename(u.file)}:${u.line}`).sort(),
+            ['a.items:0', 'b.items:0'],
+        )
+        assert.strictEqual(index.tagUsages.get('GroundFloor').length, 1)
+        assert.strictEqual(index.tagUsages.has('latitude'), false)
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('ItemIndex.refresh updates one file\'s tags without touching the others', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-index-'))
+    try {
+        const a = path.join(dir, 'a.items')
+        const b = path.join(dir, 'b.items')
+        fs.writeFileSync(a, 'Switch A "a" ["Lighting"]\n')
+        fs.writeFileSync(b, 'Switch B "b" ["Lighting", "GroundFloor"]\n')
+        const index = new ItemIndex({ rootDir: dir })
+        index.scan()
+
+        // Rewrite a without tags, with a clearly newer mtime.
+        const scanned = fs.statSync(a).mtimeMs
+        fs.writeFileSync(a, 'Switch A "a"\n')
+        const later = new Date(scanned + 5000)
+        fs.utimesSync(a, later, later)
+        assert.strictEqual(index.refresh(a), true)
+        // Lighting is still project-known via b; GroundFloor is untouched.
+        assert.deepStrictEqual([...index.usedTags].sort(), ['GroundFloor', 'Lighting'])
+        assert.deepStrictEqual(
+            index.tagUsages.get('Lighting').map((u) => path.basename(u.file)),
+            ['b.items'],
+        )
+
+        // Drop the tag from b too: no project tags remain.
+        const scannedB = fs.statSync(b).mtimeMs
+        fs.writeFileSync(b, 'Switch B "b"\n')
+        const laterB = new Date(scannedB + 5000)
+        fs.utimesSync(b, laterB, laterB)
+        index.refresh(b)
+        assert.strictEqual(index.usedTags.size, 0)
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
+test('ItemIndex.removeFile drops that file\'s definitions and tags', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-index-'))
+    try {
+        const a = path.join(dir, 'a.items')
+        fs.writeFileSync(a, 'Switch A "a" ["Lighting"]\n')
+        fs.writeFileSync(path.join(dir, 'b.items'), 'Switch B "b" ["GroundFloor"]\n')
+        const index = new ItemIndex({ rootDir: dir })
+        index.scan()
+
+        index.removeFile(a)
+        assert.strictEqual(index.has('A'), false)
+        assert.strictEqual(index.has('B'), true)
+        assert.deepStrictEqual([...index.usedTags], ['GroundFloor'])
+        assert.strictEqual(index.size, 1)
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
 test('collectItemsFiles is sorted and skips junk directories', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-index-'))
     try {

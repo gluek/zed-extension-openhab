@@ -142,6 +142,38 @@ test('all() is sorted by name for stable completion order', () => {
     assert.deepStrictEqual(store.all.map((i) => i.name), ['Alpha', 'Zed'])
 })
 
+test('all() is cached until the cache changes; generation tracks changes', () => {
+    const store = new ItemStore()
+    store.configure({ host: 'h', port: 1 })
+    store.items.set('Zed', new Item({ name: 'Zed', type: 'Switch' }))
+    store.items.set('Alpha', new Item({ name: 'Alpha', type: 'Switch' }))
+
+    const first = store.all
+    assert.deepStrictEqual(first.map((i) => i.name), ['Alpha', 'Zed'])
+    assert.strictEqual(store.all, first, 'the sorted array is cached, not re-sorted per call')
+
+    const generation = store.generation
+    // A cache-changing event invalidates the array and bumps the generation.
+    store.handleEvent(event('openhab/items/Alpha/state', 'ItemStateEvent', { type: 'OnOff', value: 'ON' }))
+    assert.ok(store.generation > generation)
+    assert.notStrictEqual(store.all, first)
+    assert.deepStrictEqual(store.all.map((i) => i.name), ['Alpha', 'Zed'])
+    assert.strictEqual(store.all, store.all)
+
+    // An event that changes nothing does not invalidate.
+    const afterChange = store.all
+    const generationAfterChange = store.generation
+    store.handleEvent('not json')
+    assert.strictEqual(store.all, afterChange)
+    assert.strictEqual(store.generation, generationAfterChange)
+
+    // stop() empties the cache and bumps the generation again.
+    const beforeStop = store.generation
+    store.stop()
+    assert.deepStrictEqual(store.all, [])
+    assert.ok(store.generation > beforeStop)
+})
+
 test('stop() clears the cache and the config by default', () => {
     const { store } = seededStore()
     store.stop()

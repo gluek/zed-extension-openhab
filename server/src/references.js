@@ -21,7 +21,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
-const { parseDefinitionLine } = require('./itemIndex')
+const { parseDefinitionLine } = require('./itemParse')
 const { collectFiles } = require('./files')
 
 /** File extensions that can reference items. */
@@ -219,9 +219,131 @@ function findReferencesInWorktree(rootDir, name, { extraFiles = [] } = {}) {
     return locations
 }
 
+/**
+ * Cached text of the worktree's openHAB source files, for reference finding
+ * and rename.
+ *
+ * The uncached `findReferencesInWorktree` walks the worktree and reads every
+ * file synchronously on each request, blocking the LSP event loop; this index
+ * applies the `ItemIndex` pattern instead: one async, batched scan reads each
+ * file once, requests then search the cached texts, and watched-file events
+ * refresh (or drop) single files by mtime. Files not in the cache — open
+ * documents outside the scanned root — are still read fresh per request.
+ */
+class ReferenceIndex {
+    /**
+     * @param {{rootDir: string}} options
+     */
+    constructor({ rootDir }) {
+        this.rootDir = rootDir
+        /** @type {Map<string, {mtimeMs: number, text: string}>} file -> cached text */
+        this.files = new Map()
+    }
+
+    /** All reference locations of `name` across the cached files (plus `extraFiles`, read fresh). */
+    findReferences(name, { extraFiles = [] } = {}) {
+        const locations = []
+        const seen = new Set()
+        // Cache keys are in scan order (sorted), so the result order matches
+        // the uncached `findReferencesInWorktree`.
+        for (const file of [...this.files.keys(), ...extraFiles]) {
+            if (seen.has(file)) {
+                continue
+            }
+            seen.add(file)
+            const cached = this.files.get(file)
+            if (cached) {
+                const extension = path.extname(file).slice(1)
+                for (const ref of findReferencesInText(cached.text, name, { extension })) {
+                    locations.push({ uri: pathToFileURL(file).href, range: ref.range })
+                }
+            } else {
+                locations.push(...findReferencesInFile(file, name))
+            }
+        }
+        return locations
+    }
+
+    /** (Re)scan the whole worktree asynchronously, in bounded batches. */
+    async scanAsync() {
+        this.files.clear()
+        const files = collectSourceFiles(this.rootDir)
+        const BATCH = 16
+        for (let i = 0; i < files.length; i += BATCH) {
+            await Promise.all(files.slice(i, i + BATCH).map((file) => this.scanFileAsync(file)))
+        }
+        return this.files.size
+    }
+
+    async scanFileAsync(file) {
+        let stat
+        try {
+            stat = await fs.promises.stat(file)
+        } catch {
+            return false
+        }
+        if (this._unchanged(file, stat)) {
+            return false
+        }
+        let text
+        try {
+            text = await fs.promises.readFile(file, 'utf8')
+        } catch {
+            return false
+        }
+        this.files.set(file, { mtimeMs: stat.mtimeMs, text })
+        return true
+    }
+
+    /** Sync single-file (re)scan — watched-file events and tests. */
+    scanFile(file) {
+        let stat
+        try {
+            stat = fs.statSync(file)
+        } catch {
+            return false
+        }
+        if (this._unchanged(file, stat)) {
+            return false
+        }
+        let text
+        try {
+            text = fs.readFileSync(file, 'utf8')
+        } catch {
+            return false
+        }
+        this.files.set(file, { mtimeMs: stat.mtimeMs, text })
+        return true
+    }
+
+    /** Refresh one file if it is a source file and its mtime changed. */
+    refresh(file) {
+        if (!SOURCE_EXTENSIONS.includes(path.extname(file))) {
+            return false
+        }
+        return this.scanFile(file)
+    }
+
+    /** Forget a file deleted from disk. */
+    removeFile(file) {
+        return this.files.delete(file)
+    }
+
+    /** mtime check, same 2 ms tolerance as `ItemIndex`. */
+    _unchanged(file, stat) {
+        const previous = this.files.get(file)
+        return previous !== undefined && Math.abs(previous.mtimeMs - stat.mtimeMs) < 2
+    }
+
+    get size() {
+        return this.files.size
+    }
+}
+
 module.exports = {
     SOURCE_EXTENSIONS,
     WORD_CHAR,
+    ReferenceIndex,
     collectSourceFiles,
     findReferencesInFile,
     findReferencesInText,

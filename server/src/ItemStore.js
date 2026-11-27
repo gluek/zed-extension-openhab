@@ -47,10 +47,22 @@ class ItemStore {
         this.log = log
         this.onEvent = onEvent
         this.items = new Map()
+        this._sorted = undefined
+        this._generation = 0
         this.config = undefined
         this.abortController = undefined
         this.reconnectTimer = undefined
         this.stopped = true
+    }
+
+    /**
+     * Invalidate derived caches (sorted item array, live-tag set) and bump
+     * the change generation, so consumers can key their own caches on it.
+     */
+    _changed() {
+        this._sorted = undefined
+        this._liveTags = undefined
+        this._generation += 1
     }
 
     /**
@@ -125,7 +137,7 @@ class ItemStore {
         for (const raw of items) {
             this.items.set(raw.name, new Item(raw))
         }
-        this._liveTags = undefined
+        this._changed()
     }
 
     /**
@@ -237,7 +249,7 @@ class ItemStore {
                 break
         }
         if (changed) {
-            this._liveTags = undefined
+            this._changed()
             this.onEvent?.()
         }
     }
@@ -255,7 +267,7 @@ class ItemStore {
             this.reconnectTimer = undefined
         }
         this.items.clear()
-        this._liveTags = undefined
+        this._changed()
         if (!keepConfig) {
             this.config = undefined
         }
@@ -282,8 +294,25 @@ class ItemStore {
     }
 
     /** Items as a plain array, sorted by name for stable completion ordering. */
+    /**
+     * Items as a plain array, sorted by name for stable completion ordering.
+     * Cached until the cache changes (`_changed`): completion fires per
+     * keystroke, and re-sorting and re-allocating every item each time is
+     * pure waste when nothing changed.
+     */
     get all() {
-        return [...this.items.values()].sort((a, b) => a.name.localeCompare(b.name))
+        if (!this._sorted) {
+            this._sorted = [...this.items.values()].sort((a, b) => a.name.localeCompare(b.name))
+        }
+        return this._sorted
+    }
+
+    /**
+     * Monotonic counter bumped whenever the item cache changed, so consumers
+     * (the completion-item cache in Server) can invalidate cheaply.
+     */
+    get generation() {
+        return this._generation
     }
 
     get size() {

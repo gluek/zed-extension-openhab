@@ -9389,19 +9389,6 @@ var require_thingTypes = __commonJS({
         }
         return out.sort();
       }
-      /**
-       * Completion context in a `.things` file: what has been typed on the line
-       * before the cursor, e.g. `    Thing hue:` → `{ before: '    Thing hue:' }`.
-       *
-       * @param {{before: string}} context from `completion.contextAt`
-       */
-      thingTypeContext(context) {
-        const m = /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before);
-        if (!m) {
-          return null;
-        }
-        return { partial: m[1] };
-      }
     };
     var { normalizeBaseUrl } = require_ItemStore();
     function defaultRest(config) {
@@ -9429,12 +9416,10 @@ var require_things = __commonJS({
       /**
        * @param {object} options
        * @param {(message: string) => void} [options.log]
-       * @param {(config: object) => {baseUrl: string, authHeaders: object}} [options.rest]
        */
       constructor({ log = () => {
-      }, rest } = {}) {
+      } } = {}) {
         this.log = log;
-        this.rest = rest || defaultRest;
         this.channelsByThing = /* @__PURE__ */ new Map();
         this.loaded = false;
         this.stopped = true;
@@ -9572,12 +9557,6 @@ var require_things = __commonJS({
         return this.channelsByThing.get(thingUID) || [];
       }
     };
-    function defaultRest(config) {
-      return {
-        baseUrl: `${normalizeBaseUrl(config.host, config.port)}/rest`,
-        authHeaders: {}
-      };
-    }
     module2.exports = { ThingStore, THING_TOPICS };
   }
 });

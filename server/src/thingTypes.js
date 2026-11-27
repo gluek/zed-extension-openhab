@@ -83,21 +83,6 @@ class ThingTypeStore {
         }
         return out.sort()
     }
-
-    /**
-     * Completion context in a `.things` file: what has been typed on the line
-     * before the cursor, e.g. `    Thing hue:` → `{ before: '    Thing hue:' }`.
-     *
-     * @param {{before: string}} context from `completion.contextAt`
-     */
-    thingTypeContext(context) {
-        // `Thing ` or `Bridge ` at the start (after whitespace) begins a UID.
-        const m = /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before)
-        if (!m) {
-            return null
-        }
-        return { partial: m[1] }
-    }
 }
 
 const { normalizeBaseUrl } = require('./ItemStore')

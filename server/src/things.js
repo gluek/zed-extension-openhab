@@ -21,11 +21,9 @@ class ThingStore {
     /**
      * @param {object} options
      * @param {(message: string) => void} [options.log]
-     * @param {(config: object) => {baseUrl: string, authHeaders: object}} [options.rest]
      */
-    constructor({ log = () => {}, rest } = {}) {
+    constructor({ log = () => {} } = {}) {
         this.log = log
-        this.rest = rest || defaultRest
         /** @type {Map<string, Array<{uid: string, channelTypeUID?: string, label?: string, itemType?: string}>>} thingUID -> channels */
         this.channelsByThing = new Map()
         /** True once /rest/things loaded successfully at least once. While
@@ -179,13 +177,6 @@ class ThingStore {
     /** Channel UIDs of one thing, e.g. for `channel="hue:0210:1:bulb1:…"`. */
     channelsOf(thingUID) {
         return this.channelsByThing.get(thingUID) || []
-    }
-}
-
-function defaultRest(config) {
-    return {
-        baseUrl: `${normalizeBaseUrl(config.host, config.port)}/rest`,
-        authHeaders: {},
     }
 }
 

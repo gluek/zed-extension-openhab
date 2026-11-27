@@ -7566,10 +7566,17 @@ var require_rest = __commonJS({
       if (/^https?:\/\//i.test(raw)) {
         return raw;
       }
+      const portSuffix = `:${Number(port) || 8080}`;
+      if (raw.startsWith("[")) {
+        return /^\[[^\]]+\]:\d+$/.test(raw) ? `http://${raw}` : `http://${raw}${portSuffix}`;
+      }
+      if ((raw.match(/:/g) || []).length > 1) {
+        return `http://[${raw}]${portSuffix}`;
+      }
       if (raw.includes(":")) {
         return `http://${raw}`;
       }
-      return `http://${raw}:${Number(port) || 8080}`;
+      return `http://${raw}${portSuffix}`;
     }
     function baseUrlFor(config) {
       return `${normalizeBaseUrl(config.host, config.port)}/rest`;
@@ -9047,8 +9054,7 @@ var require_references = __commonJS({
           if (definitionRanges.has(key)) {
             continue;
           }
-          const lineStart = masked.lastIndexOf("\n", character - 1) + 1;
-          const lineUpToEnd = masked.slice(lineStart, character + name.length);
+          const lineUpToEnd = masked.slice(0, character + name.length);
           const decl = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)$/.exec(lineUpToEnd);
           if (decl && decl[1] === name) {
             continue;
@@ -9537,6 +9543,7 @@ var require_things = __commonJS({
       }
       /** Subscribe to thing events; refetch the list (debounced) on any event. */
       async listen() {
+        this.abortController?.abort();
         this.abortController = new AbortController();
         try {
           const response = await fetch(`${this.baseUrl}/events?topics=${THING_TOPICS}`, {
@@ -9840,11 +9847,10 @@ var require_Server = __commonJS({
         this.settings = resolveSettings(next);
         if (!this.settings.lspEnabled) {
           this.store.stop();
+          this.things.stop();
           return;
         }
-        const reconnected = CONNECTION_KEYS.some(
-          (key) => JSON.stringify(previous[key]) !== JSON.stringify(this.settings[key])
-        );
+        const reconnected = !previous.lspEnabled || CONNECTION_KEYS.some((key) => JSON.stringify(previous[key]) !== JSON.stringify(this.settings[key]));
         if (reconnected) {
           await this.store.restart(this.settings);
           await this.thingTypes.load(this.settings);

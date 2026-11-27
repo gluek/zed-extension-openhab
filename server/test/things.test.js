@@ -2,6 +2,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert')
+const { mock } = require('node:test')
 
 const { ThingStore } = require('../src/things')
 const { isChannelValuePosition, channelCompletions } = require('../src/completion')
@@ -90,4 +91,61 @@ test('ThingStore.load never throws on unreachable host', async () => {
     await s.load()
     assert.deepStrictEqual(s.channelsByThing.size, 0)
     assert.ok(logs.some((m) => /cannot load things/.test(m)))
+})
+
+test('listen() aborts the previous event stream when re-listening (no stream stacking)', async () => {
+    const realFetch = globalThis.fetch
+    const eventSignals = []
+    const streamControllers = []
+    let thingsLoads = 0
+    globalThis.fetch = async (url, opts = {}) => {
+        if (String(url).includes('/events')) {
+            const signal = opts.signal
+            eventSignals.push(signal)
+            let controller
+            const body = new ReadableStream({
+                start(c) {
+                    controller = c
+                    signal?.addEventListener('abort', () => {
+                        try {
+                            c.error(new DOMException('aborted', 'AbortError'))
+                        } catch {
+                            /* stream already closed */
+                        }
+                    })
+                },
+            })
+            streamControllers.push(controller)
+            return { ok: true, status: 200, body }
+        }
+        thingsLoads += 1
+        return { ok: true, status: 200, json: async () => THINGS }
+    }
+    mock.timers.enable({ apis: ['setTimeout'] })
+    const s = new ThingStore({ log: () => {} })
+    try {
+        await s.start({ host: 'h', port: 1 })
+        // start() -> load() + listen(): exactly one event stream is open.
+        assert.strictEqual(eventSignals.length, 1)
+        assert.strictEqual(eventSignals[0].aborted, false)
+
+        // One thing event -> scheduleRefetch() (1 s debounce, mocked timer).
+        streamControllers[0].enqueue(
+            new TextEncoder().encode('data: {"topic":"openhab/things/hue:0210:1:bulb1/added","type":"ThingAddedEvent","payload":"{}"}\n\n'),
+        )
+        await new Promise((resolve) => setImmediate(resolve))
+        mock.timers.tick(1000)
+        // The timer runs load().then(() => listen()); wait for the second stream.
+        for (let i = 0; i < 50 && eventSignals.length < 2; i++) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        assert.strictEqual(eventSignals.length, 2, 'refetch should open a second stream')
+        assert.strictEqual(eventSignals[0].aborted, true, 'the first stream must be aborted, not leaked')
+        assert.strictEqual(eventSignals[1].aborted, false)
+        assert.strictEqual(thingsLoads, 2, 'the refetch reloads /rest/things exactly once')
+    } finally {
+        s.stop()
+        mock.timers.reset()
+        globalThis.fetch = realFetch
+    }
 })

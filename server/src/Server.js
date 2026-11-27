@@ -323,12 +323,17 @@ class Server {
         this.settings = resolveSettings(next)
 
         if (!this.settings.lspEnabled) {
+            // Stop everything that talks to the instance — not just the item
+            // store; otherwise the things event stream keeps running.
             this.store.stop()
+            this.things.stop()
             return
         }
-        const reconnected = CONNECTION_KEYS.some(
-            (key) => JSON.stringify(previous[key]) !== JSON.stringify(this.settings[key]),
-        )
+        // Re-enabling after a disable is a full restart, not a connection-key
+        // diff: the stores were stopped when the LSP was disabled.
+        const reconnected =
+            !previous.lspEnabled ||
+            CONNECTION_KEYS.some((key) => JSON.stringify(previous[key]) !== JSON.stringify(this.settings[key]))
         if (reconnected) {
             await this.store.restart(this.settings)
             await this.thingTypes.load(this.settings)

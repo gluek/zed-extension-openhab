@@ -103,6 +103,12 @@ class ThingStore {
 
     /** Subscribe to thing events; refetch the list (debounced) on any event. */
     async listen() {
+        // Abort the previous stream before opening a new one: scheduleRefetch()
+        // re-enters listen() while an older loop may still be consuming its
+        // (still open) stream — without this, every refetch leaked one SSE
+        // connection until the server closed it. The aborted loop's catch
+        // sees AbortError and returns without scheduling a reconnect.
+        this.abortController?.abort()
         this.abortController = new AbortController()
         try {
             const response = await fetch(`${this.baseUrl}/events?topics=${THING_TOPICS}`, {

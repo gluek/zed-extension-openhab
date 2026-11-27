@@ -17,6 +17,14 @@ test('normalizeBaseUrl: host:port wins over the port setting; full URLs pass thr
     assert.strictEqual(normalizeBaseUrl('https://oh.example.de/', 443), 'https://oh.example.de')
 })
 
+test('normalizeBaseUrl: IPv6 literals are bracketed and keep the configured port', () => {
+    assert.strictEqual(normalizeBaseUrl('::1', 8080), 'http://[::1]:8080')
+    assert.strictEqual(normalizeBaseUrl('fe80::1', 9090), 'http://[fe80::1]:9090')
+    assert.strictEqual(normalizeBaseUrl('[::1]', 8080), 'http://[::1]:8080')
+    assert.strictEqual(normalizeBaseUrl('[::1]:8443', 8080), 'http://[::1]:8443')
+    assert.strictEqual(normalizeBaseUrl('[2001:db8::1]:8080/', 8080), 'http://[2001:db8::1]:8080')
+})
+
 test('baseUrlFor appends /rest', () => {
     assert.strictEqual(baseUrlFor({ host: 'localhost', port: 8080 }), 'http://localhost:8080/rest')
 })

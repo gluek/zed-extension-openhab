@@ -10,18 +10,31 @@
  * Normalize the `host` setting into a base URL without a trailing slash.
  *
  * Accepts `"localhost"`, `"localhost:8080"` (port from the host wins over the
- * `port` setting), `"http://host:port"`, and `"https://host"`. Bare hosts get
- * `http://` and the configured port (default 8080).
+ * `port` setting), `"http://host:port"`, `"https://host"`, and IPv6 literals
+ * (`"::1"` is bracketed to `[::1]` so the URL parses; `"[::1]:8080"` passes
+ * through). Bare hosts get `http://` and the configured port (default 8080).
  */
 function normalizeBaseUrl(host, port) {
     const raw = (host || 'localhost').trim().replace(/\/+$/, '')
     if (/^https?:\/\//i.test(raw)) {
         return raw
     }
+    const portSuffix = `:${Number(port) || 8080}`
+    if (raw.startsWith('[')) {
+        // Bracketed IPv6 literal: pass through when it already carries a port
+        // (`[::1]:8080`), otherwise append the configured one.
+        return /^\[[^\]]+\]:\d+$/.test(raw) ? `http://${raw}` : `http://${raw}${portSuffix}`
+    }
+    if ((raw.match(/:/g) || []).length > 1) {
+        // Bare IPv6 literal (multiple colons, no brackets): bracket it so the
+        // colons are not mistaken for a host:port separator.
+        return `http://[${raw}]${portSuffix}`
+    }
+    // A single colon means host:port — the port in `raw` wins.
     if (raw.includes(':')) {
         return `http://${raw}`
     }
-    return `http://${raw}:${Number(port) || 8080}`
+    return `http://${raw}${portSuffix}`
 }
 
 /** Base REST URL for a settings object, e.g. `http://localhost:8080/rest`. */

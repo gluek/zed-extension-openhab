@@ -994,3 +994,70 @@ test('publishes unknown-channel diagnostics for .items over stdio', async () => 
         fs.rmSync(dir, { recursive: true, force: true })
     }
 })
+
+test('lspEnabled=false stops the things stream and channel diagnostics; re-enabling restores them', async () => {
+    const dir = makeWorktree()
+    fs.writeFileSync(path.join(dir, 'lamps.items'), 'Switch B "b" { channel="hue:0210:1:bulb1:colr" }\n')
+    const { server, port } = await startFakeOpenHAB([])
+    const client = startClient(port)
+    const itemsUri = 'file://' + path.join(dir, 'lamps.items')
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    const latestDiags = () => {
+        const pubs = client.notifications.filter((n) => n.method === 'textDocument/publishDiagnostics' && n.params.uri === itemsUri)
+        return pubs.length ? pubs[pubs.length - 1].params.diagnostics : null
+    }
+    const open = (version) => {
+        const text = fs.readFileSync(path.join(dir, 'lamps.items'), 'utf8')
+        client.send({
+            jsonrpc: '2.0',
+            method: 'textDocument/didOpen',
+            params: { textDocument: { uri: itemsUri, languageId: 'openhab', version, text } },
+        })
+    }
+    const hasChannelError = (diags) => diags !== null && diags.some((d) => d.severity === 1 && d.message.includes('does not exist on thing'))
+    try {
+        await client.request(1, 'initialize', {
+            processId: process.pid,
+            rootUri: 'file://' + dir,
+            workspaceFolders: [{ uri: 'file://' + dir, name: 'wt' }],
+            capabilities: {},
+            initializationOptions: { host: '127.0.0.1', port, lspEnabled: true },
+        })
+        client.send({ jsonrpc: '2.0', method: 'initialized', params: {} })
+
+        open(1)
+        await sleep(600)
+        assert.ok(hasChannelError(latestDiags()), 'expected the unknown-channel error while enabled')
+
+        // Disable the LSP: the things cache is dropped, so channel checks stop.
+        client.send({
+            jsonrpc: '2.0',
+            method: 'workspace/didChangeConfiguration',
+            params: { settings: { openhab: { lspEnabled: false } } },
+        })
+        await sleep(400)
+        client.send({ jsonrpc: '2.0', method: 'textDocument/didClose', params: { textDocument: { uri: itemsUri } } })
+        open(2)
+        await sleep(600)
+        const whileDisabled = latestDiags()
+        assert.ok(whileDisabled !== null, 'expected fresh diagnostics after didOpen')
+        assert.ok(
+            !whileDisabled.some((d) => d.severity === 1),
+            `no channel errors while disabled, got: ${JSON.stringify(whileDisabled)}`,
+        )
+
+        // Re-enable (Zed pushes the whole section, incl. host/port): the
+        // stores restart and open documents are re-validated.
+        client.send({
+            jsonrpc: '2.0',
+            method: 'workspace/didChangeConfiguration',
+            params: { settings: { openhab: { host: '127.0.0.1', port, lspEnabled: true } } },
+        })
+        await sleep(1000)
+        assert.ok(hasChannelError(latestDiags()), 'expected the unknown-channel error again after re-enabling')
+    } finally {
+        client.child.kill()
+        server.close()
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})

@@ -149,8 +149,9 @@ function findReferencesInText(text, name, { extension }) {
             // same line. The name is part of the declaration when the masked
             // line up to and including the match is `… val|var <name>` — the
             // name is the LAST token, so test the line up to the match END.
-            const lineStart = masked.lastIndexOf('\n', character - 1) + 1
-            const lineUpToEnd = masked.slice(lineStart, character + name.length)
+            // (`masked` is a single line — it contains no '\n' — so the
+            // prefix always starts at 0.)
+            const lineUpToEnd = masked.slice(0, character + name.length)
             const decl = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)$/.exec(lineUpToEnd)
             if (decl && decl[1] === name) {
                 continue

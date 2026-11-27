@@ -13,7 +13,7 @@ const SERVER_ID: &str = "openhab-lsp";
 /// The bundle itself is *not* embedded in the extension wasm (Zed's
 /// publishing rules forbid bundling a language server); it is fetched
 /// at runtime through the extension API.
-const SERVER_COMMIT: &str = "78a9e56baeb17f7459b9baf22f9bb5f0db1fb60a";
+const SERVER_COMMIT: &str = "0f8b3ed94235134d8632e1bcbdcd8ad59b78cfaa";
 const SERVER_SCRIPT_NAME: &str = "openhab-language-server.js";
 
 /// Raw-file URL of the server bundle at `SERVER_COMMIT`, derived from the

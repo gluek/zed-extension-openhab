@@ -1,7 +1,7 @@
 [package]
 name = "openhab"
 # extension.toml is the authoritative published version — keep in sync with it.
-version = "0.6.8"
+version = "0.6.9"
 edition = "2021"
 publish = false
 license = "MIT"

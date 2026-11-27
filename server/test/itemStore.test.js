@@ -4,6 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert')
 
 const ItemStore = require('../src/ItemStore')
+const Item = require('../src/Item')
 
 /** Build an SSE `data:` payload the way openHAB sends it. */
 function event(topic, type, payload) {
@@ -156,4 +157,20 @@ test('restart() survives an unreachable host without throwing', async () => {
     await store.restart({ host: '127.0.0.1', port: 1 })
     assert.ok(logs.some((m) => /cannot reach openHAB/.test(m)))
     store.stop()
+})
+
+test('liveTags is the cached union of item tags and invalidates on change', () => {
+    const { store } = seededStore()
+    store.items.set('A', new Item({ name: 'A', type: 'Switch', tags: ['Lighting', 'Indoor'] }))
+    store.items.set('B', new Item({ name: 'B', type: 'Switch', tags: ['Lighting'] }))
+    const tags = store.liveTags
+    assert.deepStrictEqual([...tags].sort(), ['Indoor', 'Lighting'])
+    assert.strictEqual(store.liveTags, tags) // cached, not rebuilt
+    // A state event invalidates the cache; the rebuilt set has the same content.
+    store.handleEvent(event('openhab/items/A/state', 'ItemStateEvent', { type: 'OnOff', value: 'ON' }))
+    assert.notStrictEqual(store.liveTags, tags)
+    assert.deepStrictEqual([...store.liveTags].sort(), ['Indoor', 'Lighting'])
+    // stop() clears the cache, so liveTags is empty again.
+    store.stop()
+    assert.strictEqual(store.liveTags.size, 0)
 })

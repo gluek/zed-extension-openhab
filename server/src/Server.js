@@ -46,6 +46,7 @@ const { ItemIndex, NAME_RE, collectItemsFiles } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
 const { ThingTypeStore } = require('./thingTypes')
 const { ThingStore } = require('./things')
+const { debounce } = require('./rest')
 
 const DEFAULT_SETTINGS = {
     host: 'localhost',
@@ -57,6 +58,12 @@ const DEFAULT_SETTINGS = {
 
 /** Settings that require reconnecting to openHAB when they change. */
 const CONNECTION_KEYS = ['host', 'port', 'authToken', 'basicAuth']
+
+/** Trailing debounce for client refresh requests after item events, in ms. */
+const REFRESH_DEBOUNCE_MS = 200
+
+/** Trailing debounce for document validation after didChangeContent, in ms. */
+const VALIDATION_DEBOUNCE_MS = 200
 
 /**
  * Semantic-token legend: item references are `variable` (index 0), item
@@ -96,11 +103,15 @@ class Server {
         this.connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout)
 
         this.settings = { ...DEFAULT_SETTINGS }
+        // Item events arrive in bursts (one per changed item); without the
+        // debounce a burst of N updates would send up to 2N refresh requests.
+        this.clientRefresh = debounce(() => this.sendClientRefresh(), REFRESH_DEBOUNCE_MS)
+        this.validators = new Map()
         this.store = new ItemStore({
             log: (message) => this.log(message),
             // Live state changes arrive over the event stream; ask the client
             // to re-pull inlay hints (and semantic tokens) so they stay live.
-            onEvent: () => this.refreshClientFeatures(),
+            onEvent: () => this.clientRefresh(),
         })
         this.thingTypes = new ThingTypeStore({ log: (message) => this.log(message) })
         this.things = new ThingStore({ log: (message) => this.log(message) })
@@ -126,9 +137,16 @@ class Server {
         this.documents.listen(this.connection)
 
         // Unknown-item diagnostics, pushed on open/change and cleared on close.
+        // didOpen validates immediately; didChange is debounced per document
+        // (one full-document scan per keystroke is wasteful).
         this.documents.onDidOpen((event) => this.validateDocument(event.document))
-        this.documents.onDidChangeContent((event) => this.validateDocument(event.document))
+        this.documents.onDidChangeContent((event) => this.scheduleValidation(event.document))
         this.documents.onDidClose((event) => {
+            const validate = this.validators.get(event.document.uri)
+            if (validate) {
+                validate.cancel()
+                this.validators.delete(event.document.uri)
+            }
             this.connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] })
         })
 
@@ -563,8 +581,9 @@ class Server {
 
     /**
      * Ask the client to re-pull inlay hints and semantic tokens for all open
-     * openHAB documents. Called when the live item cache changes (event
-     * stream), so hints follow state changes without an edit.
+     * openHAB documents. Called (debounced, via `this.clientRefresh`) when the
+     * live item cache changes (event stream), so hints follow state changes
+     * without an edit.
      *
      * Note the capability path: LSP puts `refreshSupport` on the *workspace*
      * capabilities (`workspace.inlayHint.refreshSupport`,
@@ -572,7 +591,7 @@ class Server {
      * only has `resolveSupport`/`dynamicRegistration`. Zed advertises both
      * workspace refresh supports as true.
      */
-    refreshClientFeatures() {
+    sendClientRefresh() {
         // Read from initialize params (see initialize()); fall back to the
         // connection's client object for libraries that do populate it.
         const caps = this.clientCapabilities || this.connection?.client?.capabilities || {}
@@ -765,7 +784,7 @@ class Server {
         if (usages && usages.some((u) => !(u.file === exclude.file && u.line === exclude.line))) {
             return true
         }
-        return [...this.store.items.values()].some((i) => i.tags && i.tags.includes(tag))
+        return this.store.liveTags.has(tag)
     }
 
     /**
@@ -778,8 +797,23 @@ class Server {
     }
 
     /**
+     * Debounced validation for a changed document: didChangeContent fires per
+     * keystroke and each run scans the whole document, so a burst of changes
+     * coalesces into one validation `VALIDATION_DEBOUNCE_MS` after the last
+     * change (one debounced validator per document URI).
+     */
+    scheduleValidation(document) {
+        let validate = this.validators.get(document.uri)
+        if (!validate) {
+            validate = debounce((doc) => this.validateDocument(doc), VALIDATION_DEBOUNCE_MS)
+            this.validators.set(document.uri, validate)
+        }
+        validate(document)
+    }
+
+    /**
      * Publish diagnostics for unknown item references in an open document.
-     * Runs on didOpen/didChange; cleared on didClose.
+     * Runs on didOpen and debounced on didChange; cleared on didClose.
      */
     validateDocument(document) {
         if (!document) {
@@ -830,6 +864,11 @@ class Server {
     }
 
     exit() {
+        this.clientRefresh?.cancel()
+        for (const validate of this.validators?.values() || []) {
+            validate.cancel()
+        }
+        this.validators?.clear()
         this.store.stop()
         this.things.stop()
     }

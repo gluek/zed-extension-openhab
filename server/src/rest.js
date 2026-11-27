@@ -92,4 +92,31 @@ class SseParser {
     }
 }
 
-module.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser }
+/**
+ * Trailing debounce: `fn` runs `ms` milliseconds after the *last* call, so a
+ * burst of calls collapses into one run. Returns the debounced function; call
+ * `.cancel()` to drop a pending run.
+ */
+function debounce(fn, ms) {
+    let timer
+    function debounced(...args) {
+        if (timer) {
+            clearTimeout(timer)
+        }
+        timer = setTimeout(() => {
+            timer = undefined
+            fn(...args)
+        }, ms)
+        // Do not hold the process open just for a pending callback.
+        timer.unref?.()
+    }
+    debounced.cancel = () => {
+        if (timer) {
+            clearTimeout(timer)
+            timer = undefined
+        }
+    }
+    return debounced
+}
+
+module.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce }

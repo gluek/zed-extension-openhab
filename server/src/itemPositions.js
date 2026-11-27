@@ -97,13 +97,21 @@ function findItemPositions(text, extension) {
     }
     const maskedWhole = maskedLines.join('\n')
 
+    // lineOffsets is sorted, so the line for an offset is found by binary
+    // search (a linear scan per candidate was O(candidates x lines) per run).
     const toRange = (index, name) => {
-        let line = 0
-        while (line + 1 < lineOffsets.length && lineOffsets[line + 1] <= index) {
-            line += 1
+        let lo = 0
+        let hi = lineOffsets.length - 1
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1
+            if (lineOffsets[mid] <= index) {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
         }
-        const character = index - lineOffsets[line]
-        return { start: { line, character }, end: { line, character: character + name.length } }
+        const character = index - lineOffsets[lo]
+        return { start: { line: lo, character }, end: { line: lo, character: character + name.length } }
     }
 
     /** @type {Array<{name: string, index: number, isDefinition: boolean}>} */

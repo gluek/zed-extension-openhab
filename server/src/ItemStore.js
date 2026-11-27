@@ -125,6 +125,7 @@ class ItemStore {
         for (const raw of items) {
             this.items.set(raw.name, new Item(raw))
         }
+        this._liveTags = undefined
     }
 
     /**
@@ -236,6 +237,7 @@ class ItemStore {
                 break
         }
         if (changed) {
+            this._liveTags = undefined
             this.onEvent?.()
         }
     }
@@ -253,9 +255,30 @@ class ItemStore {
             this.reconnectTimer = undefined
         }
         this.items.clear()
+        this._liveTags = undefined
         if (!keepConfig) {
             this.config = undefined
         }
+    }
+
+    /**
+     * All semantic tags present on live items, as a Set. Cached and
+     * invalidated whenever the cache changes, so tag lookups are O(1) instead
+     * of scanning every item per tag.
+     *
+     * @returns {Set<string>}
+     */
+    get liveTags() {
+        if (!this._liveTags) {
+            const tags = new Set()
+            for (const item of this.items.values()) {
+                for (const tag of item.tags) {
+                    tags.add(tag)
+                }
+            }
+            this._liveTags = tags
+        }
+        return this._liveTags
     }
 
     /** Items as a plain array, sorted by name for stable completion ordering. */

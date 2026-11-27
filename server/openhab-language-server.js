@@ -7621,7 +7621,27 @@ var require_rest = __commonJS({
         return payloads;
       }
     };
-    module2.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser };
+    function debounce(fn, ms) {
+      let timer;
+      function debounced(...args) {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        timer = setTimeout(() => {
+          timer = void 0;
+          fn(...args);
+        }, ms);
+        timer.unref?.();
+      }
+      debounced.cancel = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = void 0;
+        }
+      };
+      return debounced;
+    }
+    module2.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce };
   }
 });
 
@@ -7717,6 +7737,7 @@ var require_ItemStore = __commonJS({
         for (const raw of items) {
           this.items.set(raw.name, new Item(raw));
         }
+        this._liveTags = void 0;
       }
       /**
        * Subscribe to the item event stream.
@@ -7818,6 +7839,7 @@ var require_ItemStore = __commonJS({
             break;
         }
         if (changed) {
+          this._liveTags = void 0;
           this.onEvent?.();
         }
       }
@@ -7834,9 +7856,29 @@ var require_ItemStore = __commonJS({
           this.reconnectTimer = void 0;
         }
         this.items.clear();
+        this._liveTags = void 0;
         if (!keepConfig) {
           this.config = void 0;
         }
+      }
+      /**
+       * All semantic tags present on live items, as a Set. Cached and
+       * invalidated whenever the cache changes, so tag lookups are O(1) instead
+       * of scanning every item per tag.
+       *
+       * @returns {Set<string>}
+       */
+      get liveTags() {
+        if (!this._liveTags) {
+          const tags = /* @__PURE__ */ new Set();
+          for (const item of this.items.values()) {
+            for (const tag of item.tags) {
+              tags.add(tag);
+            }
+          }
+          this._liveTags = tags;
+        }
+        return this._liveTags;
       }
       /** Items as a plain array, sorted by name for stable completion ordering. */
       get all() {
@@ -9031,15 +9073,21 @@ var require_diagnostics = __commonJS({
       }
       const maskedWhole = maskedLines.join("\n");
       const toRange = (index, name) => {
-        let line = 0;
-        while (line + 1 < lineOffsets.length && lineOffsets[line + 1] <= index) {
-          line += 1;
+        let lo = 0;
+        let hi = lineOffsets.length - 1;
+        while (lo < hi) {
+          const mid = lo + hi + 1 >> 1;
+          if (lineOffsets[mid] <= index) {
+            lo = mid;
+          } else {
+            hi = mid - 1;
+          }
         }
-        const character = index - lineOffsets[line];
+        const character = index - lineOffsets[lo];
         return {
           range: {
-            start: { line, character },
-            end: { line, character: character + name.length }
+            start: { line: lo, character },
+            end: { line: lo, character: character + name.length }
           },
           name,
           message: `Unknown item '${name}' (not defined in any .items file and not present on the openHAB instance)`
@@ -9254,12 +9302,18 @@ var require_itemPositions = __commonJS({
       }
       const maskedWhole = maskedLines.join("\n");
       const toRange = (index, name) => {
-        let line = 0;
-        while (line + 1 < lineOffsets.length && lineOffsets[line + 1] <= index) {
-          line += 1;
+        let lo = 0;
+        let hi = lineOffsets.length - 1;
+        while (lo < hi) {
+          const mid = lo + hi + 1 >> 1;
+          if (lineOffsets[mid] <= index) {
+            lo = mid;
+          } else {
+            hi = mid - 1;
+          }
         }
-        const character = index - lineOffsets[line];
-        return { start: { line, character }, end: { line, character: character + name.length } };
+        const character = index - lineOffsets[lo];
+        return { start: { line: lo, character }, end: { line: lo, character: character + name.length } };
       };
       const candidates = [];
       if (extension === "items") {
@@ -9603,6 +9657,7 @@ var require_Server = __commonJS({
     var { findReferencesInWorktree } = require_references();
     var { ThingTypeStore } = require_thingTypes();
     var { ThingStore } = require_things();
+    var { debounce } = require_rest();
     var DEFAULT_SETTINGS = {
       host: "localhost",
       port: 8080,
@@ -9611,6 +9666,8 @@ var require_Server = __commonJS({
       lspEnabled: true
     };
     var CONNECTION_KEYS = ["host", "port", "authToken", "basicAuth"];
+    var REFRESH_DEBOUNCE_MS = 200;
+    var VALIDATION_DEBOUNCE_MS = 200;
     var SEMANTIC_TOKEN_LEGEND = {
       tokenTypes: [SemanticTokenTypes.variable, SemanticTokenTypes.property],
       tokenModifiers: ["declaration"]
@@ -9631,11 +9688,13 @@ var require_Server = __commonJS({
       start() {
         this.connection = createConnection(ProposedFeatures.all, process.stdin, process.stdout);
         this.settings = { ...DEFAULT_SETTINGS };
+        this.clientRefresh = debounce(() => this.sendClientRefresh(), REFRESH_DEBOUNCE_MS);
+        this.validators = /* @__PURE__ */ new Map();
         this.store = new ItemStore({
           log: (message) => this.log(message),
           // Live state changes arrive over the event stream; ask the client
           // to re-pull inlay hints (and semantic tokens) so they stay live.
-          onEvent: () => this.refreshClientFeatures()
+          onEvent: () => this.clientRefresh()
         });
         this.thingTypes = new ThingTypeStore({ log: (message) => this.log(message) });
         this.things = new ThingStore({ log: (message) => this.log(message) });
@@ -9656,8 +9715,13 @@ var require_Server = __commonJS({
         this.documents = new TextDocuments(TextDocument2);
         this.documents.listen(this.connection);
         this.documents.onDidOpen((event) => this.validateDocument(event.document));
-        this.documents.onDidChangeContent((event) => this.validateDocument(event.document));
+        this.documents.onDidChangeContent((event) => this.scheduleValidation(event.document));
         this.documents.onDidClose((event) => {
+          const validate = this.validators.get(event.document.uri);
+          if (validate) {
+            validate.cancel();
+            this.validators.delete(event.document.uri);
+          }
           this.connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
         });
         this.index = null;
@@ -10050,8 +10114,9 @@ var require_Server = __commonJS({
       }
       /**
        * Ask the client to re-pull inlay hints and semantic tokens for all open
-       * openHAB documents. Called when the live item cache changes (event
-       * stream), so hints follow state changes without an edit.
+       * openHAB documents. Called (debounced, via `this.clientRefresh`) when the
+       * live item cache changes (event stream), so hints follow state changes
+       * without an edit.
        *
        * Note the capability path: LSP puts `refreshSupport` on the *workspace*
        * capabilities (`workspace.inlayHint.refreshSupport`,
@@ -10059,7 +10124,7 @@ var require_Server = __commonJS({
        * only has `resolveSupport`/`dynamicRegistration`. Zed advertises both
        * workspace refresh supports as true.
        */
-      refreshClientFeatures() {
+      sendClientRefresh() {
         const caps = this.clientCapabilities || this.connection?.client?.capabilities || {};
         let sent = 0;
         if (caps.workspace?.inlayHint?.refreshSupport) {
@@ -10231,7 +10296,7 @@ var require_Server = __commonJS({
         if (usages && usages.some((u) => !(u.file === exclude.file && u.line === exclude.line))) {
           return true;
         }
-        return [...this.store.items.values()].some((i) => i.tags && i.tags.includes(tag));
+        return this.store.liveTags.has(tag);
       }
       /**
        * An item is "known" when it is defined in the worktree's .items files or
@@ -10242,8 +10307,22 @@ var require_Server = __commonJS({
         return index && index.has(name) || this.store.items.has(name);
       }
       /**
+       * Debounced validation for a changed document: didChangeContent fires per
+       * keystroke and each run scans the whole document, so a burst of changes
+       * coalesces into one validation `VALIDATION_DEBOUNCE_MS` after the last
+       * change (one debounced validator per document URI).
+       */
+      scheduleValidation(document) {
+        let validate = this.validators.get(document.uri);
+        if (!validate) {
+          validate = debounce((doc) => this.validateDocument(doc), VALIDATION_DEBOUNCE_MS);
+          this.validators.set(document.uri, validate);
+        }
+        validate(document);
+      }
+      /**
        * Publish diagnostics for unknown item references in an open document.
-       * Runs on didOpen/didChange; cleared on didClose.
+       * Runs on didOpen and debounced on didChange; cleared on didClose.
        */
       validateDocument(document) {
         if (!document) {
@@ -10289,6 +10368,11 @@ var require_Server = __commonJS({
         });
       }
       exit() {
+        this.clientRefresh?.cancel();
+        for (const validate of this.validators?.values() || []) {
+          validate.cancel();
+        }
+        this.validators?.clear();
         this.store.stop();
         this.things.stop();
       }

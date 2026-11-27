@@ -2,8 +2,9 @@
 
 const test = require('node:test')
 const assert = require('node:assert')
+const { mock } = require('node:test')
 
-const { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser } = require('../src/rest')
+const { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce } = require('../src/rest')
 
 test('normalizeBaseUrl: bare host gets http:// and the configured port', () => {
     assert.strictEqual(normalizeBaseUrl('localhost', 8080), 'http://localhost:8080')
@@ -49,4 +50,42 @@ test('SseParser skips non-data lines and flushes a trailing data: line at end()'
     assert.deepStrictEqual(sse.feed(Buffer.from(': keepalive\n\n')), [])
     assert.deepStrictEqual(sse.feed(Buffer.from('data: abc')), [])
     assert.deepStrictEqual(sse.end(), ['abc'])
+})
+
+test('debounce collapses a burst into one trailing call and resets on each call', () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    try {
+        let calls = 0
+        const fn = debounce(() => {
+            calls += 1
+        }, 200)
+        fn()
+        fn()
+        fn()
+        mock.timers.tick(199)
+        assert.strictEqual(calls, 0)
+        mock.timers.tick(1)
+        assert.strictEqual(calls, 1)
+        fn()
+        mock.timers.tick(200)
+        assert.strictEqual(calls, 2)
+    } finally {
+        mock.timers.reset()
+    }
+})
+
+test('debounce cancel() drops a pending call', () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    try {
+        let calls = 0
+        const fn = debounce(() => {
+            calls += 1
+        }, 200)
+        fn()
+        fn.cancel()
+        mock.timers.tick(1000)
+        assert.strictEqual(calls, 0)
+    } finally {
+        mock.timers.reset()
+    }
 })

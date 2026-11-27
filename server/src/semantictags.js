@@ -349,7 +349,12 @@ function isTagPosition(extension, context) {
     return ITEM_PREFIX_ICON_CLOSED_RE.test(masked)
 }
 
-/** Semantic-tag completions for the partial inside `["…"]`. */
+/**
+ * Semantic-tag completions for the partial inside `["…"]`.
+ *
+ * @param {string} partial typed text inside the quotes
+ * @param {Iterable<string>} [extraTags] project-local tags, offered first
+ */
 function tagCompletions(partial, extraTags = []) {
     const seen = new Set()
     const items = []

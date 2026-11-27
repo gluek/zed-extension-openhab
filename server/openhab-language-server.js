@@ -10165,12 +10165,14 @@ var require_Server = __commonJS({
        * Semantic tags already used in the worktree's `.items` files (scanned
        * once, cached, refreshed on watched-file events). Offered before the
        * built-in ontology list so project-local tags complete first.
+       *
+       * @returns {Set<string>}
        */
       usedTags() {
         if (!this._usedTags) {
           this._usedTags = /* @__PURE__ */ new Set();
         }
-        return [...this._usedTags];
+        return this._usedTags;
       }
       /**
        * (Re)scan the worktree's .items files for `["…"]` tag values.

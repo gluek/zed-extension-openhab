@@ -134,7 +134,7 @@ See [`tests/README.md`](tests/README.md) for the query-validation harness.
 ```sh
 ./tests/validate-queries.sh                                     # queries compile (5/5)
 ./tests/check-snapshots.sh                                      # parse-tree snapshots (20 ok)
-(cd server && node --test test/completion.test.js test/itemStore.test.js test/hover.test.js)  # language server tests (29 pass)
+(cd server && npm test)                                                 # language server unit tests
 cargo build --release --target wasm32-wasip2                    # extension wasm (needs the wasm32-wasip2 target)
 ```
 

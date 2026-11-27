@@ -1,6 +1,7 @@
 [package]
 name = "openhab"
-version = "0.1.0"
+# extension.toml is the authoritative published version — keep in sync with it.
+version = "0.6.7"
 edition = "2021"
 publish = false
 license = "MIT"
@@ -8,6 +9,12 @@ license = "MIT"
 [lib]
 path = "src/openhab.rs"
 crate-type = ["cdylib"]
+
+# Shrink the shipped extension.wasm.
+[profile.release]
+lto = true
+opt-level = "z"
+strip = true
 
 [dependencies]
 serde_json = "1.0"

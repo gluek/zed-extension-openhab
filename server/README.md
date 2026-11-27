@@ -152,16 +152,15 @@ These are deliberate; see the comments in `src/` for the reasoning.
 cd server
 npm --cache ../.scratch/npm-cache install   # once; installs esbuild + the two runtime deps
 npm --cache ../.scratch/npm-cache run build  # rebuild openhab-language-server.js after editing src/
-node --test test/completion.test.js test/itemStore.test.js   # unit tests (24 pass)
+npm test                                    # unit tests (e2e excluded)
+npm run test:e2e                            # stdio end-to-end test against a fake REST API
 ```
 
 On this machine use Zed's managed Node
 (`~/.local/share/zed/node/node-v24.22.1-linux-x64/bin/node`) — `/usr/bin/node`
-is broken (missing `libsimdjson.so.36`) — and pass test files explicitly to
-`node --test` (a bare `test/` dir fails on this Node version; `integration.test.js`
-hangs, pre-existing). `npm test` also includes an end-to-end test that spawns
-the bundled server over stdio against a fake openHAB REST API and asserts that
-item completions come back for a `.rules` file.
+is broken (missing `libsimdjson.so.36`), and a bare `node --test test/` fails on
+this Node version, so `npm test` lists the unit test files explicitly and keeps
+the stdio end-to-end test (`test/integration.test.js`) behind `npm run test:e2e`.
 
 **Always rebuild the bundle before committing** — the committed `.js` is what
 users actually run, so a stale bundle silently ignores source changes.

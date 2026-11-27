@@ -14,18 +14,15 @@
 /** Characters that make up an openHAB item name at the cursor. */
 const WORD_CHAR = /[A-Za-z0-9_$]/
 
-/** Test a single character against WORD_CHAR (used by Server for ranges). */
-function WORD_CHAR_TEST(ch) {
-    return WORD_CHAR.test(ch || '')
-}
-
 /**
- * The item name under the cursor, or null when the cursor is not on a word.
+ * The word under the cursor and its LSP range, or null when the cursor is not
+ * on a word.
  *
  * @param {string} source full document text
  * @param {{line: number, character: number}} position LSP position
+ * @returns {{word: string, range: {start: {line: number, character: number}, end: {line: number, character: number}}} | null}
  */
-function wordAt(source, position) {
+function wordRangeAt(source, position) {
     const line = source.split(/\r?\n/)[position.line] || ''
     const col = Math.min(position.character, line.length)
     if (!WORD_CHAR.test(line[col] || '') && !(col > 0 && WORD_CHAR.test(line[col - 1]))) {
@@ -40,7 +37,27 @@ function wordAt(source, position) {
         end += 1
     }
     const word = line.slice(start, end)
-    return word || null
+    if (!word) {
+        return null
+    }
+    return {
+        word,
+        range: {
+            start: { line: position.line, character: start },
+            end: { line: position.line, character: end },
+        },
+    }
+}
+
+/**
+ * The item name under the cursor, or null when the cursor is not on a word.
+ *
+ * @param {string} source full document text
+ * @param {{line: number, character: number}} position LSP position
+ */
+function wordAt(source, position) {
+    const at = wordRangeAt(source, position)
+    return at ? at.word : null
 }
 
 /**
@@ -61,4 +78,4 @@ function hoverFor(item) {
     }
 }
 
-module.exports = { wordAt, hoverFor, WORD_CHAR, WORD_CHAR_TEST }
+module.exports = { wordAt, wordRangeAt, hoverFor, WORD_CHAR }

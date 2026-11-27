@@ -10,10 +10,17 @@
 'use strict'
 
 const fs = require('node:fs')
-const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
-/** Base item types as lexed by the grammar (`dsl_type_word`). */
+const { collectFiles } = require('./files')
+
+/**
+ * The grammar's `dsl_type_word` list (grammar/grammar.js): the 12 base item
+ * types plus the extra `.items` types (`Call`, `StringList`, `QuantityType`)
+ * and the sitemap widget words (`Default`, `Slider`, `Chart`, …) — one token
+ * serves both dialects, so the definition-line matcher accepts all of them.
+ * (`completion.js` offers only the 12 base item types to users.)
+ */
 const ITEM_TYPES = [
     'Color', 'Contact', 'DateTime', 'Dimmer', 'Group', 'Image', 'Location',
     'Number', 'Player', 'Rollershutter', 'String', 'Switch', 'Call',
@@ -22,8 +29,7 @@ const ITEM_TYPES = [
     'Chart', 'Webview', 'Video', 'Mapview',
 ]
 
-/** Directories never scanned for `.items` files. */
-const SKIP_DIRS = new Set(['node_modules', '.git', '.scratch', 'target'])
+/** Directories never scanned for `.items` files live in files.js (SKIP_DIRS). */
 
 /**
  * An item definition line looks like:
@@ -94,28 +100,7 @@ function parseItemsFile(text) {
 
 /** Recursively collect `.items` files under `rootDir`, skipping junk dirs. */
 function collectItemsFiles(rootDir) {
-    const files = []
-    const stack = [rootDir]
-    while (stack.length) {
-        const dir = stack.pop()
-        let entries
-        try {
-            entries = fs.readdirSync(dir, { withFileTypes: true })
-        } catch {
-            continue
-        }
-        for (const entry of entries) {
-            const full = path.join(dir, entry.name)
-            if (entry.isDirectory()) {
-                if (!SKIP_DIRS.has(entry.name)) {
-                    stack.push(full)
-                }
-            } else if (entry.isFile() && entry.name.endsWith('.items')) {
-                files.push(full)
-            }
-        }
-    }
-    return files.sort()
+    return collectFiles(rootDir, (name) => name.endsWith('.items'))
 }
 
 /**

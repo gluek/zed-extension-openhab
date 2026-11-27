@@ -22,6 +22,7 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 
 const { parseDefinitionLine } = require('./itemIndex')
+const { collectFiles } = require('./files')
 
 /** File extensions that can reference items. */
 const SOURCE_EXTENSIONS = ['.items', '.rules', '.script', '.sitemap', '.persist']
@@ -194,29 +195,7 @@ function findReferencesInFile(file, name) {
 
 /** Recursively collect openHAB source files under `rootDir` (sorted). */
 function collectSourceFiles(rootDir) {
-    const SKIP = new Set(['node_modules', '.git', '.scratch', 'target'])
-    const files = []
-    const stack = [rootDir]
-    while (stack.length) {
-        const dir = stack.pop()
-        let entries
-        try {
-            entries = fs.readdirSync(dir, { withFileTypes: true })
-        } catch {
-            continue
-        }
-        for (const entry of entries) {
-            const full = path.join(dir, entry.name)
-            if (entry.isDirectory()) {
-                if (!SKIP.has(entry.name)) {
-                    stack.push(full)
-                }
-            } else if (entry.isFile() && SOURCE_EXTENSIONS.includes(path.extname(entry.name))) {
-                files.push(full)
-            }
-        }
-    }
-    return files.sort()
+    return collectFiles(rootDir, (name) => SOURCE_EXTENSIONS.includes(path.extname(name)))
 }
 
 /**

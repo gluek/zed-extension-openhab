@@ -28,7 +28,7 @@
 const { pathToFileURL } = require('node:url')
 const path = require('node:path')
 
-const { WORD_CHAR } = require('./hover')
+const { wordRangeAt } = require('./hover')
 const { NAME_RE, parseDefinitionLine } = require('./itemIndex')
 
 /** Commands offered per item type for `sendCommand` (openHAB core item commands). */
@@ -64,24 +64,6 @@ function itemNameFromChannelUid(uid) {
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join('_')
     return /^[A-Za-z_]/.test(cleaned) ? cleaned : `Item_${cleaned}`
-}
-
-/** The word (item name) at a position, or null. */
-function wordAt(text, position) {
-    const line = text.split(/\r?\n/)[position.line] || ''
-    const col = Math.min(position.character, line.length)
-    if (!WORD_CHAR.test(line[col] || '') && !(col > 0 && WORD_CHAR.test(line[col - 1]))) {
-        return null
-    }
-    let start = col
-    while (start > 0 && WORD_CHAR.test(line[start - 1])) {
-        start -= 1
-    }
-    let end = col
-    while (end < line.length && WORD_CHAR.test(line[end])) {
-        end += 1
-    }
-    return line.slice(start, end) || null
 }
 
 /**
@@ -137,7 +119,7 @@ function codeActionsAt(text, extension, params, ctx) {
                 },
             })
         }
-        pushSendCommand(wordAt(text, params.range.start))
+        pushSendCommand(wordRangeAt(text, params.range.start)?.word)
         return actions
     }
 
@@ -146,7 +128,7 @@ function codeActionsAt(text, extension, params, ctx) {
         // line is where you stand when you want to toggle the item).
         const def = parseDefinitionLine(line, lineNo)
         if (def) {
-            const word = wordAt(text, params.range.start)
+            const word = wordRangeAt(text, params.range.start)?.word
             if (word === def.name) {
                 pushSendCommand(word)
             }
@@ -177,7 +159,7 @@ function codeActionsAt(text, extension, params, ctx) {
     }
 
     if (extension === 'sitemap') {
-        pushSendCommand(wordAt(text, params.range.start))
+        pushSendCommand(wordRangeAt(text, params.range.start)?.word)
     }
 
     return actions

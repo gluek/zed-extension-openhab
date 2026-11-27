@@ -155,6 +155,8 @@ module.exports = grammar({
     [$.item_type, $.local_variable_declaration],
     [$.item_definition, $.labeled_statement],
     [$.item_type, $.labeled_statement],
+    // openHAB: sitemap `mappings=[…]` and `visibility=[…]` both follow a widget
+    // attribute and start with `[` — defer until the contents show which.
     [$.sitemap_mappings, $.sitemap_visibility],
     // openHAB: `Text`/`Frame` now appear in both sitemap_frame and
     // sitemap_widget (a bare `Text item=…` line is a widget); after the
@@ -170,6 +172,8 @@ module.exports = grammar({
     [$.oh_call_statement, $.expression_statement],
     [$.oh_call_statement, $.method_invocation],
     [$.oh_call_statement, $.primary_expression],
+    // openHAB: `X.y(…)` without a trailing `;` in a rule body is an
+    // oh_field_call_statement, not a field_access/method_invocation expression.
     [$.oh_field_call_statement, $.method_invocation],
     [$.oh_field_call_statement, $.field_access],
     [$.oh_field_call_statement, $.expression_statement],
@@ -182,6 +186,8 @@ module.exports = grammar({
     [$.oh_field_call_statement, $.statement],
     [$.oh_field_call_statement, $.expression],
     [$._unannotated_type, $.primary_expression],
+    // openHAB: `val|var X = …` — defer the Java local-variable-declaration vs.
+    // expression-statement readings until the `=` arrives.
     [$.oh_var_declaration, $.local_variable_declaration],
     [$.oh_var_declaration, $.expression_statement],
     [$.oh_var_declaration, $.statement],
@@ -205,6 +211,8 @@ module.exports = grammar({
     [$.oh_var_declaration, $.cast_expression],
     [$.oh_var_declaration, $.primary_expression],
     [$.oh_var_declaration, $.expression],
+    // openHAB: the value after `=` in a val/var declaration re-enters full
+    // Java expression parsing (array access, calls, casts, …).
     [$.oh_var_value, $.array_access],
     [$.oh_var_value, $.expression],
     [$.expression, $.array_access],
@@ -233,6 +241,8 @@ module.exports = grammar({
     [$.bridge_body, $.statement],
     [$.thing_body, $.bridge_body],
     [$.bridge_body, $.thing_body],
+    // openHAB: a Thing/Bridge UID (`binding:type:id`) can look like a Java
+    // statement or expression; defer until the `:` segments / label string.
     [$.thing_uid, $.statement],
     [$.thing_uid, $.labeled_statement],
     [$.thing_uid, $.expression_statement],

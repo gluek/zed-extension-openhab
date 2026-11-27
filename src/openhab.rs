@@ -15,9 +15,13 @@ const SERVER_ID: &str = "openhab-lsp";
 /// at runtime through the extension API.
 const SERVER_COMMIT: &str = "78a9e56baeb17f7459b9baf22f9bb5f0db1fb60a";
 const SERVER_SCRIPT_NAME: &str = "openhab-language-server.js";
-/// Raw file URL pinned to `SERVER_COMMIT`; bump together with `version`
-/// in `extension.toml` when the bundle changes.
-const SERVER_DOWNLOAD_URL: &str = "https://raw.githubusercontent.com/gluek/zed-extension-openhab/78a9e56baeb17f7459b9baf22f9bb5f0db1fb60a/server/openhab-language-server.js";
+
+/// Raw-file URL of the server bundle at `SERVER_COMMIT`, derived from the
+/// commit so the pin lives in exactly one place. Bump `SERVER_COMMIT`
+/// together with `version` in `extension.toml` when the bundle changes.
+fn server_download_url() -> String {
+    format!("https://raw.githubusercontent.com/gluek/zed-extension-openhab/{SERVER_COMMIT}/server/{SERVER_SCRIPT_NAME}")
+}
 
 struct OpenHabExtension;
 
@@ -51,17 +55,18 @@ impl OpenHabExtension {
             language_server_id,
             &LanguageServerInstallationStatus::Downloading,
         );
+        let url = server_download_url();
         let request = HttpRequest::builder()
             .method(HttpMethod::Get)
-            .url(SERVER_DOWNLOAD_URL)
+            .url(url.clone())
             .redirect_policy(RedirectPolicy::FollowAll)
             .build()?;
         let response = request.fetch().map_err(|e| {
-            format!("openHAB extension: failed to download the language server from {SERVER_DOWNLOAD_URL}: {e}")
+            format!("openHAB extension: failed to download the language server from {url}: {e}")
         })?;
         if response.body.is_empty() {
             return Err(format!(
-                "openHAB extension: download of the language server from {SERVER_DOWNLOAD_URL} returned an empty body"
+                "openHAB extension: download of the language server from {url} returned an empty body"
             ));
         }
         std::fs::write(&script, &response.body).map_err(|e| {

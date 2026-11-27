@@ -12,7 +12,12 @@
 /** LSP CompletionItemKind.Variable */
 const KIND_VARIABLE = 6
 
-/** Item types offered in `.items` type position. */
+/**
+ * The 12 base item types offered in `.items` type position. This is a subset
+ * of the grammar's `dsl_type_word` (grammar/grammar.js), which also lists
+ * `Call`, `StringList`, `QuantityType` and the sitemap widget words — see
+ * `itemIndex.ITEM_TYPES` for that full matching list.
+ */
 const ITEM_TYPES = [
     'Color',
     'Contact',

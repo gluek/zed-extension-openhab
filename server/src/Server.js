@@ -31,6 +31,7 @@ const {
 } = require('vscode-languageserver')
 const { TextDocument } = require('vscode-languageserver-textdocument')
 const { fileURLToPath } = require('node:url')
+const fs = require('node:fs')
 
 const ItemStore = require('./ItemStore')
 const completion = require('./completion')
@@ -41,7 +42,7 @@ const semantictags = require('./semantictags')
 const { codeActionsAt } = require('./codeActions')
 const { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require('./diagnostics')
 const { findItemPositions } = require('./itemPositions')
-const { ItemIndex, NAME_RE } = require('./itemIndex')
+const { ItemIndex, NAME_RE, collectItemsFiles } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
 const { ThingTypeStore } = require('./thingTypes')
 const { ThingStore } = require('./things')
@@ -396,6 +397,19 @@ class Server {
         return { uri: def.uri, range: def.range }
     }
 
+    /** Absolute paths of all open documents (may include files outside the scanned root). */
+    openDocumentPaths() {
+        return [...this.documents.all()]
+            .map((d) => {
+                try {
+                    return fileURLToPath(d.uri)
+                } catch {
+                    return null
+                }
+            })
+            .filter(Boolean)
+    }
+
     /**
      * References: every usage of the item under the cursor across the
      * worktree's openHAB files. `includeDeclaration` adds the definition.
@@ -414,13 +428,7 @@ class Server {
             return []
         }
         // Include any open documents even if outside the scanned root.
-        const extraFiles = [...this.documents.all()].map((d) => {
-            try {
-                return fileURLToPath(d.uri)
-            } catch {
-                return null
-            }
-        }).filter(Boolean)
+        const extraFiles = this.openDocumentPaths()
         const locations = findReferencesInWorktree(rootDir, word, { extraFiles })
         if (params.context?.includeDeclaration) {
             const index = this.getIndex()
@@ -442,33 +450,17 @@ class Server {
         if (!document) {
             return null
         }
-        const word = hover.wordAt(document.getText(), params.position)
-        if (!word || !NAME_RE.test(word)) {
+        const at = hover.wordRangeAt(document.getText(), params.position)
+        if (!at || !NAME_RE.test(at.word)) {
             return null
         }
+        const word = at.word
         const index = this.getIndex()
         const known = (index && index.has(word)) || this.store.items.has(word)
         if (!known) {
             return null
         }
-        // Compute the word's range from the cursor position.
-        const line = document.getText().split(/\r?\n/)[params.position.line] || ''
-        const col = Math.min(params.position.character, line.length)
-        let start = col
-        while (start > 0 && hover.WORD_CHAR_TEST(line[start - 1])) {
-            start -= 1
-        }
-        let end = col
-        while (end < line.length && hover.WORD_CHAR_TEST(line[end])) {
-            end += 1
-        }
-        return {
-            range: {
-                start: { line: params.position.line, character: start },
-                end: { line: params.position.line, character: end },
-            },
-            placeholder: word,
-        }
+        return { range: at.range, placeholder: word }
     }
 
     /**
@@ -491,13 +483,7 @@ class Server {
         if (!rootDir) {
             return null
         }
-        const extraFiles = [...this.documents.all()].map((d) => {
-            try {
-                return fileURLToPath(d.uri)
-            } catch {
-                return null
-            }
-        }).filter(Boolean)
+        const extraFiles = this.openDocumentPaths()
         const locations = findReferencesInWorktree(rootDir, word, { extraFiles })
         const index = this.getIndex()
         const def = index && index.get(word)
@@ -725,8 +711,6 @@ class Server {
         }
         const tags = new Set()
         const usages = new Map()
-        const { collectItemsFiles } = require('./itemIndex')
-        const fs = require('node:fs')
         // Same tag-list shape as diagnostics.js: a […] after the label string,
         // without '=' inside (Location config excluded).
         const TAG_LIST_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g

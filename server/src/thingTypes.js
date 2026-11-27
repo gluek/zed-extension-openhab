@@ -85,19 +85,11 @@ class ThingTypeStore {
     }
 }
 
-const { normalizeBaseUrl } = require('./ItemStore')
+const { baseUrlFor, authHeadersFor } = require('./rest')
 
 /** Default REST adapter: normalize host/port and build auth headers. */
 function defaultRest(config) {
-    const baseUrl = `${normalizeBaseUrl(config.host, config.port)}/rest`
-    const authHeaders = {}
-    if (config.authToken) {
-        authHeaders.Authorization = `Bearer ${config.authToken}`
-    } else if (config.basicAuth && config.basicAuth.username) {
-        authHeaders.Authorization =
-            'Basic ' + Buffer.from(`${config.basicAuth.username}:${config.basicAuth.password || ''}`).toString('base64')
-    }
-    return { baseUrl, authHeaders }
+    return { baseUrl: baseUrlFor(config), authHeaders: authHeadersFor(config) }
 }
 
 module.exports = { ThingTypeStore }

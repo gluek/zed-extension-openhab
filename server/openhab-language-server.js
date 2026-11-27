@@ -7557,13 +7557,10 @@ var require_Item = __commonJS({
   }
 });
 
-// src/ItemStore.js
-var require_ItemStore = __commonJS({
-  "src/ItemStore.js"(exports2, module2) {
+// src/rest.js
+var require_rest = __commonJS({
+  "src/rest.js"(exports2, module2) {
     "use strict";
-    var Item = require_Item();
-    var RECONNECT_DELAY_MS = 1e4;
-    var EVENT_TOPICS = "smarthome/items/*,openhab/items/*";
     function normalizeBaseUrl(host, port) {
       const raw = (host || "localhost").trim().replace(/\/+$/, "");
       if (/^https?:\/\//i.test(raw)) {
@@ -7574,6 +7571,68 @@ var require_ItemStore = __commonJS({
       }
       return `http://${raw}:${Number(port) || 8080}`;
     }
+    function baseUrlFor(config) {
+      return `${normalizeBaseUrl(config.host, config.port)}/rest`;
+    }
+    function authHeadersFor(config) {
+      if (config.authToken) {
+        return { Authorization: `Bearer ${config.authToken}` };
+      }
+      if (config.basicAuth && config.basicAuth.username) {
+        const encoded = Buffer.from(`${config.basicAuth.username}:${config.basicAuth.password || ""}`).toString("base64");
+        return { Authorization: `Basic ${encoded}` };
+      }
+      return {};
+    }
+    var SseParser = class {
+      constructor() {
+        this.decoder = new TextDecoder();
+        this.buffer = "";
+      }
+      /**
+       * Feed one chunk.
+       *
+       * @param {Uint8Array} chunk
+       * @returns {string[]} complete `data:` payloads (prefix stripped, trimmed)
+       */
+      feed(chunk) {
+        this.buffer += this.decoder.decode(chunk, { stream: true });
+        return this._drain(false);
+      }
+      /** Flush the decoder at end of stream; returns a final unterminated `data:` line, if any. */
+      end() {
+        this.buffer += this.decoder.decode();
+        return this._drain(true);
+      }
+      _drain(flush) {
+        const payloads = [];
+        let nl;
+        while ((nl = this.buffer.indexOf("\n")) !== -1) {
+          const line = this.buffer.slice(0, nl);
+          this.buffer = this.buffer.slice(nl + 1);
+          if (line.startsWith("data:")) {
+            payloads.push(line.slice("data:".length).trim());
+          }
+        }
+        if (flush && this.buffer.startsWith("data:")) {
+          payloads.push(this.buffer.slice("data:".length).trim());
+          this.buffer = "";
+        }
+        return payloads;
+      }
+    };
+    module2.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser };
+  }
+});
+
+// src/ItemStore.js
+var require_ItemStore = __commonJS({
+  "src/ItemStore.js"(exports2, module2) {
+    "use strict";
+    var Item = require_Item();
+    var { normalizeBaseUrl, authHeadersFor, SseParser } = require_rest();
+    var RECONNECT_DELAY_MS = 1e4;
+    var EVENT_TOPICS = "smarthome/items/*,openhab/items/*";
     var ItemStore = class {
       /**
        * @param {object} options
@@ -7623,15 +7682,7 @@ var require_ItemStore = __commonJS({
       }
       /** Authorization headers, empty when no credentials are configured. */
       get authHeaders() {
-        const { authToken, basicAuth } = this.config;
-        if (authToken) {
-          return { Authorization: `Bearer ${authToken}` };
-        }
-        if (basicAuth && basicAuth.username) {
-          const encoded = Buffer.from(`${basicAuth.username}:${basicAuth.password || ""}`).toString("base64");
-          return { Authorization: `Basic ${encoded}` };
-        }
-        return {};
+        return authHeadersFor(this.config);
       }
       async connect() {
         try {
@@ -7684,15 +7735,18 @@ var require_ItemStore = __commonJS({
           if (!response.ok || !response.body) {
             throw new Error(`event stream failed with status ${response.status}`);
           }
-          const decoder = new TextDecoder();
+          const sse = new SseParser();
           for await (const chunk of response.body) {
             if (this.stopped) {
               return;
             }
-            for (const line of decoder.decode(chunk).split("\n")) {
-              if (line.startsWith("data:")) {
-                this.handleEvent(line.slice("data:".length).trim());
-              }
+            for (const payload of sse.feed(chunk)) {
+              this.handleEvent(payload);
+            }
+          }
+          for (const payload of sse.end()) {
+            if (!this.stopped) {
+              this.handleEvent(payload);
             }
           }
         } catch (error) {
@@ -7793,7 +7847,6 @@ var require_ItemStore = __commonJS({
       }
     };
     module2.exports = ItemStore;
-    module2.exports.normalizeBaseUrl = normalizeBaseUrl;
   }
 });
 
@@ -7950,10 +8003,7 @@ var require_hover = __commonJS({
   "src/hover.js"(exports2, module2) {
     "use strict";
     var WORD_CHAR = /[A-Za-z0-9_$]/;
-    function WORD_CHAR_TEST(ch) {
-      return WORD_CHAR.test(ch || "");
-    }
-    function wordAt(source, position) {
+    function wordRangeAt(source, position) {
       const line = source.split(/\r?\n/)[position.line] || "";
       const col = Math.min(position.character, line.length);
       if (!WORD_CHAR.test(line[col] || "") && !(col > 0 && WORD_CHAR.test(line[col - 1]))) {
@@ -7968,7 +8018,20 @@ var require_hover = __commonJS({
         end += 1;
       }
       const word = line.slice(start, end);
-      return word || null;
+      if (!word) {
+        return null;
+      }
+      return {
+        word,
+        range: {
+          start: { line: position.line, character: start },
+          end: { line: position.line, character: end }
+        }
+      };
+    }
+    function wordAt(source, position) {
+      const at = wordRangeAt(source, position);
+      return at ? at.word : null;
     }
     function hoverFor(item) {
       const value = item.state ? `State: \`${item.state}\`` : "State: _(none yet)_";
@@ -7976,7 +8039,7 @@ var require_hover = __commonJS({
         contents: { kind: "markdown", value }
       };
     }
-    module2.exports = { wordAt, hoverFor, WORD_CHAR, WORD_CHAR_TEST };
+    module2.exports = { wordAt, wordRangeAt, hoverFor, WORD_CHAR };
   }
 });
 
@@ -7984,12 +8047,39 @@ var require_hover = __commonJS({
 var require_files2 = __commonJS({
   "src/files.js"(exports2, module2) {
     "use strict";
+    var fs = require("node:fs");
+    var path = require("node:path");
     function extensionOf(uri) {
       const match = /\.([A-Za-z]+)$/.exec(uri || "");
       return match ? match[1].toLowerCase() : "";
     }
     var OPENHAB_EXTENSIONS = ["items", "rules", "script", "sitemap", "things", "persist"];
-    module2.exports = { extensionOf, OPENHAB_EXTENSIONS };
+    var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".scratch", "target"]);
+    function collectFiles(rootDir, accept) {
+      const files = [];
+      const stack = [rootDir];
+      while (stack.length) {
+        const dir = stack.pop();
+        let entries;
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (!SKIP_DIRS.has(entry.name)) {
+              stack.push(full);
+            }
+          } else if (entry.isFile() && accept(entry.name)) {
+            files.push(full);
+          }
+        }
+      }
+      return files.sort();
+    }
+    module2.exports = { extensionOf, OPENHAB_EXTENSIONS, SKIP_DIRS, collectFiles };
   }
 });
 
@@ -8445,8 +8535,8 @@ var require_itemIndex = __commonJS({
   "src/itemIndex.js"(exports2, module2) {
     "use strict";
     var fs = require("node:fs");
-    var path = require("node:path");
     var { pathToFileURL } = require("node:url");
+    var { collectFiles } = require_files2();
     var ITEM_TYPES = [
       "Color",
       "Contact",
@@ -8473,7 +8563,6 @@ var require_itemIndex = __commonJS({
       "Video",
       "Mapview"
     ];
-    var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".scratch", "target"]);
     var DEFINITION_RE = new RegExp(
       // The trailing `(?!\w|=)` keeps a sitemap widget line (`Switch item=X …`)
       // from matching: `item` must be a standalone name token, not a keyword
@@ -8511,28 +8600,7 @@ var require_itemIndex = __commonJS({
       return definitions;
     }
     function collectItemsFiles(rootDir) {
-      const files = [];
-      const stack = [rootDir];
-      while (stack.length) {
-        const dir = stack.pop();
-        let entries;
-        try {
-          entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-          continue;
-        }
-        for (const entry of entries) {
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            if (!SKIP_DIRS.has(entry.name)) {
-              stack.push(full);
-            }
-          } else if (entry.isFile() && entry.name.endsWith(".items")) {
-            files.push(full);
-          }
-        }
-      }
-      return files.sort();
+      return collectFiles(rootDir, (name) => name.endsWith(".items"));
     }
     var ItemIndex = class {
       /**
@@ -8626,7 +8694,7 @@ var require_codeActions = __commonJS({
     "use strict";
     var { pathToFileURL } = require("node:url");
     var path = require("node:path");
-    var { WORD_CHAR } = require_hover();
+    var { wordRangeAt } = require_hover();
     var { NAME_RE, parseDefinitionLine } = require_itemIndex();
     var COMMANDS_BY_TYPE = {
       Switch: ["ON", "OFF"],
@@ -8648,22 +8716,6 @@ var require_codeActions = __commonJS({
     function itemNameFromChannelUid(uid) {
       const cleaned = uid.split(":").map((part) => part.replace(/[^A-Za-z0-9_]/g, "_")).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("_");
       return /^[A-Za-z_]/.test(cleaned) ? cleaned : `Item_${cleaned}`;
-    }
-    function wordAt(text, position) {
-      const line = text.split(/\r?\n/)[position.line] || "";
-      const col = Math.min(position.character, line.length);
-      if (!WORD_CHAR.test(line[col] || "") && !(col > 0 && WORD_CHAR.test(line[col - 1]))) {
-        return null;
-      }
-      let start = col;
-      while (start > 0 && WORD_CHAR.test(line[start - 1])) {
-        start -= 1;
-      }
-      let end = col;
-      while (end < line.length && WORD_CHAR.test(line[end])) {
-        end += 1;
-      }
-      return line.slice(start, end) || null;
     }
     function codeActionsAt(text, extension, params, ctx) {
       const actions = [];
@@ -8702,13 +8754,13 @@ var require_codeActions = __commonJS({
             }
           });
         }
-        pushSendCommand(wordAt(text, params.range.start));
+        pushSendCommand(wordRangeAt(text, params.range.start)?.word);
         return actions;
       }
       if (extension === "items") {
         const def = parseDefinitionLine(line, lineNo);
         if (def) {
-          const word = wordAt(text, params.range.start);
+          const word = wordRangeAt(text, params.range.start)?.word;
           if (word === def.name) {
             pushSendCommand(word);
           }
@@ -8735,7 +8787,7 @@ var require_codeActions = __commonJS({
         return actions;
       }
       if (extension === "sitemap") {
-        pushSendCommand(wordAt(text, params.range.start));
+        pushSendCommand(wordRangeAt(text, params.range.start)?.word);
       }
       return actions;
     }
@@ -8772,6 +8824,7 @@ var require_references = __commonJS({
     var path = require("node:path");
     var { pathToFileURL } = require("node:url");
     var { parseDefinitionLine } = require_itemIndex();
+    var { collectFiles } = require_files2();
     var SOURCE_EXTENSIONS = [".items", ".rules", ".script", ".sitemap", ".persist"];
     var WORD_CHAR = /[A-Za-z0-9_$]/;
     function maskStringsAndComments(line, inBlockComment) {
@@ -8890,29 +8943,7 @@ var require_references = __commonJS({
       }));
     }
     function collectSourceFiles(rootDir) {
-      const SKIP = /* @__PURE__ */ new Set(["node_modules", ".git", ".scratch", "target"]);
-      const files = [];
-      const stack = [rootDir];
-      while (stack.length) {
-        const dir = stack.pop();
-        let entries;
-        try {
-          entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-          continue;
-        }
-        for (const entry of entries) {
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            if (!SKIP.has(entry.name)) {
-              stack.push(full);
-            }
-          } else if (entry.isFile() && SOURCE_EXTENSIONS.includes(path.extname(entry.name))) {
-            files.push(full);
-          }
-        }
-      }
-      return files.sort();
+      return collectFiles(rootDir, (name) => SOURCE_EXTENSIONS.includes(path.extname(name)));
     }
     function findReferencesInWorktree(rootDir, name, { extraFiles = [] } = {}) {
       const locations = [];
@@ -9390,16 +9421,9 @@ var require_thingTypes = __commonJS({
         return out.sort();
       }
     };
-    var { normalizeBaseUrl } = require_ItemStore();
+    var { baseUrlFor, authHeadersFor } = require_rest();
     function defaultRest(config) {
-      const baseUrl = `${normalizeBaseUrl(config.host, config.port)}/rest`;
-      const authHeaders = {};
-      if (config.authToken) {
-        authHeaders.Authorization = `Bearer ${config.authToken}`;
-      } else if (config.basicAuth && config.basicAuth.username) {
-        authHeaders.Authorization = "Basic " + Buffer.from(`${config.basicAuth.username}:${config.basicAuth.password || ""}`).toString("base64");
-      }
-      return { baseUrl, authHeaders };
+      return { baseUrl: baseUrlFor(config), authHeaders: authHeadersFor(config) };
     }
     module2.exports = { ThingTypeStore };
   }
@@ -9409,7 +9433,7 @@ var require_thingTypes = __commonJS({
 var require_things = __commonJS({
   "src/things.js"(exports2, module2) {
     "use strict";
-    var { normalizeBaseUrl } = require_ItemStore();
+    var { baseUrlFor, authHeadersFor, SseParser } = require_rest();
     var REFETCH_DEBOUNCE_MS = 1e3;
     var THING_TOPICS = "smarthome/things/*,openhab/things/*";
     var ThingStore = class {
@@ -9446,19 +9470,10 @@ var require_things = __commonJS({
         }
       }
       get baseUrl() {
-        return `${normalizeBaseUrl(this.config.host, this.config.port)}/rest`;
+        return baseUrlFor(this.config);
       }
       get authHeaders() {
-        const { authToken, basicAuth } = this.config;
-        if (authToken) {
-          return { Authorization: `Bearer ${authToken}` };
-        }
-        if (basicAuth && basicAuth.username) {
-          return {
-            Authorization: "Basic " + Buffer.from(`${basicAuth.username}:${basicAuth.password || ""}`).toString("base64")
-          };
-        }
-        return {};
+        return authHeadersFor(this.config);
       }
       /** Fetch all things and index their channels. Never throws. */
       async load() {
@@ -9505,16 +9520,13 @@ var require_things = __commonJS({
           if (!response.ok || !response.body) {
             throw new Error(`status ${response.status}`);
           }
-          const decoder = new TextDecoder();
+          const sse = new SseParser();
           for await (const chunk of response.body) {
             if (this.stopped) {
               return;
             }
-            for (const line of decoder.decode(chunk).split("\n")) {
-              if (line.startsWith("data:")) {
-                this.scheduleRefetch();
-                break;
-              }
+            if (sse.feed(chunk).length > 0) {
+              this.scheduleRefetch();
             }
           }
         } catch (error) {
@@ -9577,6 +9589,7 @@ var require_Server = __commonJS({
     } = require_main4();
     var { TextDocument: TextDocument2 } = (init_main(), __toCommonJS(main_exports));
     var { fileURLToPath } = require("node:url");
+    var fs = require("node:fs");
     var ItemStore = require_ItemStore();
     var completion = require_completion();
     var hover = require_hover();
@@ -9586,7 +9599,7 @@ var require_Server = __commonJS({
     var { codeActionsAt } = require_codeActions();
     var { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require_diagnostics();
     var { findItemPositions } = require_itemPositions();
-    var { ItemIndex, NAME_RE } = require_itemIndex();
+    var { ItemIndex, NAME_RE, collectItemsFiles } = require_itemIndex();
     var { findReferencesInWorktree } = require_references();
     var { ThingTypeStore } = require_thingTypes();
     var { ThingStore } = require_things();
@@ -9879,6 +9892,16 @@ var require_Server = __commonJS({
         }
         return { uri: def.uri, range: def.range };
       }
+      /** Absolute paths of all open documents (may include files outside the scanned root). */
+      openDocumentPaths() {
+        return [...this.documents.all()].map((d) => {
+          try {
+            return fileURLToPath(d.uri);
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+      }
       /**
        * References: every usage of the item under the cursor across the
        * worktree's openHAB files. `includeDeclaration` adds the definition.
@@ -9896,13 +9919,7 @@ var require_Server = __commonJS({
         if (!rootDir) {
           return [];
         }
-        const extraFiles = [...this.documents.all()].map((d) => {
-          try {
-            return fileURLToPath(d.uri);
-          } catch {
-            return null;
-          }
-        }).filter(Boolean);
+        const extraFiles = this.openDocumentPaths();
         const locations = findReferencesInWorktree(rootDir, word, { extraFiles });
         if (params.context?.includeDeclaration) {
           const index = this.getIndex();
@@ -9923,32 +9940,17 @@ var require_Server = __commonJS({
         if (!document) {
           return null;
         }
-        const word = hover.wordAt(document.getText(), params.position);
-        if (!word || !NAME_RE.test(word)) {
+        const at = hover.wordRangeAt(document.getText(), params.position);
+        if (!at || !NAME_RE.test(at.word)) {
           return null;
         }
+        const word = at.word;
         const index = this.getIndex();
         const known = index && index.has(word) || this.store.items.has(word);
         if (!known) {
           return null;
         }
-        const line = document.getText().split(/\r?\n/)[params.position.line] || "";
-        const col = Math.min(params.position.character, line.length);
-        let start = col;
-        while (start > 0 && hover.WORD_CHAR_TEST(line[start - 1])) {
-          start -= 1;
-        }
-        let end = col;
-        while (end < line.length && hover.WORD_CHAR_TEST(line[end])) {
-          end += 1;
-        }
-        return {
-          range: {
-            start: { line: params.position.line, character: start },
-            end: { line: params.position.line, character: end }
-          },
-          placeholder: word
-        };
+        return { range: at.range, placeholder: word };
       }
       /**
        * Rename: rewrite every reference (and the definition) of the item to the
@@ -9970,13 +9972,7 @@ var require_Server = __commonJS({
         if (!rootDir) {
           return null;
         }
-        const extraFiles = [...this.documents.all()].map((d) => {
-          try {
-            return fileURLToPath(d.uri);
-          } catch {
-            return null;
-          }
-        }).filter(Boolean);
+        const extraFiles = this.openDocumentPaths();
         const locations = findReferencesInWorktree(rootDir, word, { extraFiles });
         const index = this.getIndex();
         const def = index && index.get(word);
@@ -10187,8 +10183,6 @@ var require_Server = __commonJS({
         }
         const tags = /* @__PURE__ */ new Set();
         const usages = /* @__PURE__ */ new Map();
-        const { collectItemsFiles } = require_itemIndex();
-        const fs = require("node:fs");
         const TAG_LIST_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g;
         const STRING_RE = /"([^"]*)"|'([^']*)'/g;
         for (const file of collectItemsFiles(rootDir)) {

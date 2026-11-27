@@ -9,7 +9,7 @@
  */
 'use strict'
 
-const { normalizeBaseUrl } = require('./ItemStore')
+const { baseUrlFor, authHeadersFor, SseParser } = require('./rest')
 
 /** Debounce for refetching /rest/things after a thing event. */
 const REFETCH_DEBOUNCE_MS = 1000
@@ -57,21 +57,11 @@ class ThingStore {
     }
 
     get baseUrl() {
-        return `${normalizeBaseUrl(this.config.host, this.config.port)}/rest`
+        return baseUrlFor(this.config)
     }
 
     get authHeaders() {
-        const { authToken, basicAuth } = this.config
-        if (authToken) {
-            return { Authorization: `Bearer ${authToken}` }
-        }
-        if (basicAuth && basicAuth.username) {
-            return {
-                Authorization:
-                    'Basic ' + Buffer.from(`${basicAuth.username}:${basicAuth.password || ''}`).toString('base64'),
-            }
-        }
-        return {}
+        return authHeadersFor(this.config)
     }
 
     /** Fetch all things and index their channels. Never throws. */
@@ -122,17 +112,14 @@ class ThingStore {
             if (!response.ok || !response.body) {
                 throw new Error(`status ${response.status}`)
             }
-            const decoder = new TextDecoder()
+            const sse = new SseParser()
             for await (const chunk of response.body) {
                 if (this.stopped) {
                     return
                 }
                 // We only need to know that *some* thing event arrived.
-                for (const line of decoder.decode(chunk).split('\n')) {
-                    if (line.startsWith('data:')) {
-                        this.scheduleRefetch()
-                        break
-                    }
+                if (sse.feed(chunk).length > 0) {
+                    this.scheduleRefetch()
                 }
             }
         } catch (error) {

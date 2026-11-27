@@ -20,6 +20,7 @@
 'use strict'
 
 const Item = require('./Item')
+const { normalizeBaseUrl, authHeadersFor, SseParser } = require('./rest')
 
 /** Delay before retrying a failed event stream, in milliseconds. */
 const RECONNECT_DELAY_MS = 10_000
@@ -34,24 +35,6 @@ const RECONNECT_DELAY_MS = 10_000
  * Both spellings are subscribed to so the server works against openHAB 3 and 4.
  */
 const EVENT_TOPICS = 'smarthome/items/*,openhab/items/*'
-
-/**
- * Normalize the `host` setting into a base URL without a trailing slash.
- *
- * Accepts `"localhost"`, `"localhost:8080"` (port from the host wins over the
- * `port` setting), `"http://host:port"`, and `"https://host"`. Bare hosts get
- * `http://` and the configured port (default 8080).
- */
-function normalizeBaseUrl(host, port) {
-    const raw = (host || 'localhost').trim().replace(/\/+$/, '')
-    if (/^https?:\/\//i.test(raw)) {
-        return raw
-    }
-    if (raw.includes(':')) {
-        return `http://${raw}`
-    }
-    return `http://${raw}:${Number(port) || 8080}`
-}
 
 class ItemStore {
     /**
@@ -105,15 +88,7 @@ class ItemStore {
 
     /** Authorization headers, empty when no credentials are configured. */
     get authHeaders() {
-        const { authToken, basicAuth } = this.config
-        if (authToken) {
-            return { Authorization: `Bearer ${authToken}` }
-        }
-        if (basicAuth && basicAuth.username) {
-            const encoded = Buffer.from(`${basicAuth.username}:${basicAuth.password || ''}`).toString('base64')
-            return { Authorization: `Basic ${encoded}` }
-        }
-        return {}
+        return authHeadersFor(this.config)
     }
 
     async connect() {
@@ -169,15 +144,18 @@ class ItemStore {
             if (!response.ok || !response.body) {
                 throw new Error(`event stream failed with status ${response.status}`)
             }
-            const decoder = new TextDecoder()
+            const sse = new SseParser()
             for await (const chunk of response.body) {
                 if (this.stopped) {
                     return
                 }
-                for (const line of decoder.decode(chunk).split('\n')) {
-                    if (line.startsWith('data:')) {
-                        this.handleEvent(line.slice('data:'.length).trim())
-                    }
+                for (const payload of sse.feed(chunk)) {
+                    this.handleEvent(payload)
+                }
+            }
+            for (const payload of sse.end()) {
+                if (!this.stopped) {
+                    this.handleEvent(payload)
                 }
             }
         } catch (error) {
@@ -291,4 +269,3 @@ class ItemStore {
 }
 
 module.exports = ItemStore
-module.exports.normalizeBaseUrl = normalizeBaseUrl

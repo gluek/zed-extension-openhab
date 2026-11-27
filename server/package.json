@@ -7,7 +7,7 @@
     "main": "openhab-language-server.js",
     "scripts": {
         "build": "esbuild src/LSPServer.js --bundle --platform=node --format=cjs --target=node20 --outfile=openhab-language-server.js",
-        "test": "node --test test/codeActions.test.js test/completion.test.js test/diagnostics.test.js test/hover.test.js test/icons.test.js test/itemIndex.test.js test/itemPositions.test.js test/itemStore.test.js test/references.test.js test/rest.test.js test/things.test.js test/thingTypes.test.js",
+        "test": "node --test test/codeActions.test.js test/completion.test.js test/diagnostics.test.js test/hover.test.js test/icons.test.js test/itemIndex.test.js test/itemOccurrences.test.js test/itemStore.test.js test/references.test.js test/rest.test.js test/things.test.js test/thingTypes.test.js",
         "test:e2e": "node --test test/integration.test.js"
     },
     "dependencies": {

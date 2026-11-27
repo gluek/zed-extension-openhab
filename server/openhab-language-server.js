@@ -9106,15 +9106,14 @@ var require_references = __commonJS({
   }
 });
 
-// src/diagnostics.js
-var require_diagnostics = __commonJS({
-  "src/diagnostics.js"(exports2, module2) {
+// src/itemOccurrences.js
+var require_itemOccurrences = __commonJS({
+  "src/itemOccurrences.js"(exports2, module2) {
     "use strict";
     var { maskStringsAndComments } = require_references();
     var { parseDefinitionLine } = require_itemIndex();
-    var { SEMANTIC_TAGS } = require_semantictags();
     var ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g;
-    var ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)/g;
+    var ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)(?![A-Za-z0-9_$])/g;
     var MEMBER_OF_RE = /Member\s+of\s*\(\s*([A-Za-z_]\w*)(\s*\))/g;
     var SITEMAP_ITEM_RE = /\bitem\s*=\s*([A-Za-z_]\w*)/g;
     var VISIBILITY_RE = /(?:\[|,)\s*([A-Za-z_]\w*)\s*(==|!=)/g;
@@ -9123,16 +9122,6 @@ var require_diagnostics = __commonJS({
     var PERSIST_NAME_RE = /(?:^|[{,]\s*|\n\s*)([A-Za-z_]\w*)(\*?)/g;
     var LOCAL_DECL_RE = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)\s*=/g;
     var NAME_TOKEN_RE = /^[A-Za-z_]\w*$/;
-    var CHANNEL_ASSIGN_RE = /\bchannel\s*=\s*"([^"]*)"|\bchannel\s*=\s*'([^']*)'/g;
-    function rangeOn(line, character, text) {
-      return {
-        range: {
-          start: { line, character },
-          end: { line, character: character + text.length }
-        },
-        name: text
-      };
-    }
     function collectMatches(re, masked, into, accept) {
       re.lastIndex = 0;
       let m;
@@ -9151,7 +9140,7 @@ var require_diagnostics = __commonJS({
         into.push({ name: m[1], index: start });
       }
     }
-    function findUnknownItemRefs(text, extension, isKnown) {
+    function analyzeText(text) {
       const lines = text.split(/\r?\n/);
       const lineOffsets = [];
       let offset = 0;
@@ -9166,32 +9155,31 @@ var require_diagnostics = __commonJS({
         inBlock = next;
         maskedLines.push(masked);
       }
-      const maskedWhole = maskedLines.join("\n");
-      const toRange = (index, name) => {
-        let lo = 0;
-        let hi = lineOffsets.length - 1;
-        while (lo < hi) {
-          const mid = lo + hi + 1 >> 1;
-          if (lineOffsets[mid] <= index) {
-            lo = mid;
-          } else {
-            hi = mid - 1;
-          }
+      return { lines, lineOffsets, maskedLines, maskedWhole: maskedLines.join("\n") };
+    }
+    function rangeAt(lineOffsets, index, name) {
+      let lo = 0;
+      let hi = lineOffsets.length - 1;
+      while (lo < hi) {
+        const mid = lo + hi + 1 >> 1;
+        if (lineOffsets[mid] <= index) {
+          lo = mid;
+        } else {
+          hi = mid - 1;
         }
-        const character = index - lineOffsets[lo];
-        return {
-          range: {
-            start: { line: lo, character },
-            end: { line: lo, character: character + name.length }
-          },
-          name,
-          message: `Unknown item '${name}' (not defined in any .items file and not present on the openHAB instance)`
-        };
-      };
+      }
+      const character = index - lineOffsets[lo];
+      return { start: { line: lo, character }, end: { line: lo, character: character + name.length } };
+    }
+    function findItemOccurrences(text, extension) {
+      const { lines, lineOffsets, maskedLines, maskedWhole } = analyzeText(text);
       const candidates = [];
       if (extension === "items") {
         for (let i = 0; i < lines.length; i++) {
           const def = parseDefinitionLine(lines[i], i);
+          if (def) {
+            candidates.push({ name: def.name, index: lineOffsets[i] + def.range.start.character, isDefinition: true });
+          }
           const nameEnd = def ? lineOffsets[i] + def.range.end.character : -1;
           GROUP_LIST_RE.lastIndex = 0;
           let g;
@@ -9251,16 +9239,69 @@ var require_diagnostics = __commonJS({
       const out = [];
       for (const c of candidates) {
         const key = `${c.name}@${c.index}`;
-        if (seen.has(key) || locals.has(c.name) || isKnown(c.name)) {
+        if (seen.has(key) || locals.has(c.name)) {
           continue;
         }
         seen.add(key);
-        out.push(toRange(c.index, c.name));
+        out.push({
+          name: c.name,
+          range: rangeAt(lineOffsets, c.index, c.name),
+          isDefinition: !!c.isDefinition
+        });
       }
       return out;
     }
     var TAG_LIST_LINE_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g;
     var TAG_VALUE_RE = /"([^"]*)"|'([^']*)'/g;
+    function tagListValues(line) {
+      const out = [];
+      TAG_LIST_LINE_RE.lastIndex = 0;
+      let m;
+      while ((m = TAG_LIST_LINE_RE.exec(line)) !== null) {
+        if (m[0].includes("=")) {
+          continue;
+        }
+        const bracket = m.index + m[0].indexOf("[");
+        const bracketStart = bracket + 1;
+        TAG_VALUE_RE.lastIndex = 0;
+        let v;
+        while ((v = TAG_VALUE_RE.exec(m[1])) !== null) {
+          const tag = v[1] ?? v[2];
+          if (tag) {
+            out.push({ tag, character: bracketStart + v.index + 1, bracket });
+          }
+        }
+      }
+      return out;
+    }
+    module2.exports = { findItemOccurrences, tagListValues, analyzeText, rangeAt };
+  }
+});
+
+// src/diagnostics.js
+var require_diagnostics = __commonJS({
+  "src/diagnostics.js"(exports2, module2) {
+    "use strict";
+    var { maskStringsAndComments } = require_references();
+    var { SEMANTIC_TAGS } = require_semantictags();
+    var { findItemOccurrences, tagListValues } = require_itemOccurrences();
+    var CHANNEL_ASSIGN_RE = /\bchannel\s*=\s*"([^"]*)"|\bchannel\s*=\s*'([^']*)'/g;
+    function rangeOn(line, character, text) {
+      return {
+        range: {
+          start: { line, character },
+          end: { line, character: character + text.length }
+        },
+        name: text
+      };
+    }
+    function findUnknownItemRefs(text, extension, isKnown) {
+      return findItemOccurrences(text, extension).filter((c) => !c.isDefinition && !isKnown(c.name)).map((c) => ({
+        range: c.range,
+        name: c.name,
+        message: `Unknown item '${c.name}' (not defined in any .items file and not present on the openHAB instance)`
+      }));
+    }
     function findUnknownTags(text, isKnownTag) {
       const known = (tag, pos) => SEMANTIC_TAGS.includes(tag) || isKnownTag(tag, pos);
       const out = [];
@@ -9270,34 +9311,21 @@ var require_diagnostics = __commonJS({
         const raw = lines[lineNo];
         const [masked, next] = maskStringsAndComments(raw, inBlock);
         inBlock = next;
-        TAG_LIST_LINE_RE.lastIndex = 0;
-        let m;
-        while ((m = TAG_LIST_LINE_RE.exec(raw)) !== null) {
-          if (m[0].includes("=")) {
+        for (const { tag, character, bracket } of tagListValues(raw)) {
+          if (masked[bracket] === " ") {
             continue;
           }
-          const bracketAt = m.index + m[0].indexOf("[");
-          if (masked[bracketAt] === " ") {
+          if (known(tag, { line: lineNo, character })) {
             continue;
           }
-          const bracketStart = bracketAt + 1;
-          TAG_VALUE_RE.lastIndex = 0;
-          let v;
-          while ((v = TAG_VALUE_RE.exec(m[1])) !== null) {
-            const tag = v[1] ?? v[2];
-            const character = bracketStart + v.index + 1;
-            if (!tag || known(tag, { line: lineNo, character })) {
-              continue;
-            }
-            out.push({
-              range: {
-                start: { line: lineNo, character },
-                end: { line: lineNo, character: character + tag.length }
-              },
-              name: tag,
-              message: `Unknown semantic tag '${tag}' (not in openHAB's ontology, not used by any item in this project, and not present on the openHAB instance)`
-            });
-          }
+          out.push({
+            range: {
+              start: { line: lineNo, character },
+              end: { line: lineNo, character: character + tag.length }
+            },
+            name: tag,
+            message: `Unknown semantic tag '${tag}' (not in openHAB's ontology, not used by any item in this project, and not present on the openHAB instance)`
+          });
         }
       }
       return out;
@@ -9347,157 +9375,6 @@ var require_diagnostics = __commonJS({
       return out;
     }
     module2.exports = { findUnknownChannels, findUnknownItemRefs, findUnknownTags };
-  }
-});
-
-// src/itemPositions.js
-var require_itemPositions = __commonJS({
-  "src/itemPositions.js"(exports2, module2) {
-    "use strict";
-    var { maskStringsAndComments } = require_references();
-    var { parseDefinitionLine } = require_itemIndex();
-    var ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g;
-    var ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)(?![A-Za-z0-9_$])/g;
-    var MEMBER_OF_RE = /Member\s+of\s*\(\s*([A-Za-z_]\w*)(\s*\))/g;
-    var SITEMAP_ITEM_RE = /\bitem\s*=\s*([A-Za-z_]\w*)/g;
-    var VISIBILITY_RE = /(?:\[|,)\s*([A-Za-z_]\w*)\s*(==|!=)/g;
-    var GROUP_LIST_RE = /\(([^()]*)\)/g;
-    var PERSIST_ITEMS_BLOCK_RE = /\bItems\s*\{([^{}]*)\}/g;
-    var PERSIST_NAME_RE = /(?:^|[{,]\s*|\n\s*)([A-Za-z_]\w*)(\*?)/g;
-    var LOCAL_DECL_RE = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)\s*=/g;
-    var NAME_TOKEN_RE = /^[A-Za-z_]\w*$/;
-    function collectMatches(re, masked, into) {
-      re.lastIndex = 0;
-      let m;
-      while ((m = re.exec(masked)) !== null) {
-        if (m[2] === "*") {
-          continue;
-        }
-        let trailing = 0;
-        for (let i = 2; i < m.length; i++) {
-          trailing += (m[i] || "").length;
-        }
-        into.push({ name: m[1], index: m.index + m[0].length - m[1].length - trailing });
-      }
-    }
-    function findItemPositions(text, extension) {
-      const lines = text.split(/\r?\n/);
-      const lineOffsets = [];
-      let offset = 0;
-      for (const line of lines) {
-        lineOffsets.push(offset);
-        offset += line.length + 1;
-      }
-      const maskedLines = [];
-      let inBlock = false;
-      for (const line of lines) {
-        const [masked, next] = maskStringsAndComments(line, inBlock);
-        inBlock = next;
-        maskedLines.push(masked);
-      }
-      const maskedWhole = maskedLines.join("\n");
-      const toRange = (index, name) => {
-        let lo = 0;
-        let hi = lineOffsets.length - 1;
-        while (lo < hi) {
-          const mid = lo + hi + 1 >> 1;
-          if (lineOffsets[mid] <= index) {
-            lo = mid;
-          } else {
-            hi = mid - 1;
-          }
-        }
-        const character = index - lineOffsets[lo];
-        return { start: { line: lo, character }, end: { line: lo, character: character + name.length } };
-      };
-      const candidates = [];
-      if (extension === "items") {
-        for (let i = 0; i < lines.length; i++) {
-          const def = parseDefinitionLine(lines[i], i);
-          if (def) {
-            candidates.push({ name: def.name, index: lineOffsets[i] + def.range.start.character, isDefinition: true });
-          }
-          const nameEnd = def ? lineOffsets[i] + def.range.end.character : -1;
-          GROUP_LIST_RE.lastIndex = 0;
-          let g;
-          while ((g = GROUP_LIST_RE.exec(maskedLines[i])) !== null) {
-            if (lineOffsets[i] + g.index <= nameEnd) {
-              continue;
-            }
-            let cursor = 0;
-            for (const part of g[1].split(",")) {
-              const name = part.trim();
-              if (NAME_TOKEN_RE.test(name)) {
-                candidates.push({
-                  name,
-                  index: lineOffsets[i] + g.index + 1 + cursor + part.indexOf(name),
-                  isDefinition: false
-                });
-              }
-              cursor += part.length + 1;
-            }
-          }
-        }
-      }
-      switch (extension) {
-        case "rules":
-        case "script":
-          collectMatches(ITEM_TRIGGER_RE, maskedWhole, candidates);
-          collectMatches(MEMBER_OF_RE, maskedWhole, candidates);
-          collectMatches(ITEM_MEMBER_RE, maskedWhole, candidates);
-          break;
-        case "sitemap":
-          collectMatches(SITEMAP_ITEM_RE, maskedWhole, candidates);
-          collectMatches(VISIBILITY_RE, maskedWhole, candidates);
-          break;
-        case "persist": {
-          const blocks = [];
-          PERSIST_ITEMS_BLOCK_RE.lastIndex = 0;
-          let b;
-          while ((b = PERSIST_ITEMS_BLOCK_RE.exec(maskedWhole)) !== null) {
-            blocks.push([b.index + b[0].indexOf("{") + 1, b.index + b[0].length - 1]);
-          }
-          PERSIST_NAME_RE.lastIndex = 0;
-          let m;
-          while ((m = PERSIST_NAME_RE.exec(maskedWhole)) !== null) {
-            if (m[2] === "*") {
-              continue;
-            }
-            const start = m.index + m[0].length - m[1].length - (m[2] || "").length;
-            if (blocks.some(([s, e]) => start >= s && start < e)) {
-              candidates.push({ name: m[1], index: start, isDefinition: false });
-            }
-          }
-          break;
-        }
-        default:
-          break;
-      }
-      const locals = /* @__PURE__ */ new Set();
-      let dm;
-      while ((dm = LOCAL_DECL_RE.exec(maskedWhole)) !== null) {
-        locals.add(dm[1]);
-      }
-      const seen = /* @__PURE__ */ new Set();
-      const out = [];
-      for (const c of candidates) {
-        const key = `${c.name}@${c.index}`;
-        if (seen.has(key)) {
-          continue;
-        }
-        seen.add(key);
-        if (locals.has(c.name)) {
-          continue;
-        }
-        out.push({
-          name: c.name,
-          range: toRange(c.index, c.name),
-          isDefinition: !!c.isDefinition
-        });
-      }
-      return out;
-    }
-    module2.exports = { findItemPositions };
   }
 });
 
@@ -9747,7 +9624,7 @@ var require_Server = __commonJS({
     var semantictags = require_semantictags();
     var { codeActionsAt } = require_codeActions();
     var { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require_diagnostics();
-    var { findItemPositions } = require_itemPositions();
+    var { findItemOccurrences, tagListValues } = require_itemOccurrences();
     var { ItemIndex, NAME_RE, collectItemsFiles } = require_itemIndex();
     var { findReferencesInWorktree } = require_references();
     var { ThingTypeStore } = require_thingTypes();
@@ -10178,7 +10055,7 @@ var require_Server = __commonJS({
           return [];
         }
         const hints = [];
-        for (const pos of findItemPositions(document.getText(), extension)) {
+        for (const pos of findItemOccurrences(document.getText(), extension)) {
           const item = this.store.items.get(pos.name);
           if (!item || !item.state) {
             continue;
@@ -10209,7 +10086,7 @@ var require_Server = __commonJS({
           return { data: [] };
         }
         const builder = new SemanticTokensBuilder();
-        for (const pos of findItemPositions(document.getText(), extension)) {
+        for (const pos of findItemOccurrences(document.getText(), extension)) {
           builder.push(
             pos.range.start.line,
             pos.range.start.character,
@@ -10345,10 +10222,11 @@ var require_Server = __commonJS({
         return this._usedTags;
       }
       /**
-       * (Re)scan the worktree's .items files for `["…"]` tag values.
-       * Populates `_usedTags` (flat set, for completion) and `_tagUsages`
-       * (tag → [{file, line}], for position-aware diagnostics: a tag used
-       * only on the line being validated is NOT "project-known").
+       * (Re)scan the worktree's .items files for `["…"]` tag values (shared
+       * extraction: `tagListValues` in itemOccurrences.js, also used by
+       * diagnostics.js). Populates `_usedTags` (flat set, for completion) and
+       * `_tagUsages` (tag → [{file, line}], for position-aware diagnostics: a
+       * tag used only on the line being validated is NOT "project-known").
        */
       async rescanUsedTags() {
         const rootDir = this.rootDir;
@@ -10357,8 +10235,6 @@ var require_Server = __commonJS({
         }
         const tags = /* @__PURE__ */ new Set();
         const usages = /* @__PURE__ */ new Map();
-        const TAG_LIST_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g;
-        const STRING_RE = /"([^"]*)"|'([^']*)'/g;
         const files = collectItemsFiles(rootDir);
         const BATCH = 16;
         for (let i = 0; i < files.length; i += BATCH) {
@@ -10372,25 +10248,12 @@ var require_Server = __commonJS({
               }
               const lines = text.split(/\r?\n/);
               for (let lineNo = 0; lineNo < lines.length; lineNo++) {
-                const line = lines[lineNo];
-                TAG_LIST_RE.lastIndex = 0;
-                let m;
-                while ((m = TAG_LIST_RE.exec(line)) !== null) {
-                  if (m[0].includes("=")) {
-                    continue;
+                for (const { tag } of tagListValues(lines[lineNo])) {
+                  tags.add(tag);
+                  if (!usages.has(tag)) {
+                    usages.set(tag, []);
                   }
-                  STRING_RE.lastIndex = 0;
-                  let s;
-                  while ((s = STRING_RE.exec(m[0])) !== null) {
-                    const tag = s[1] ?? s[2];
-                    if (tag) {
-                      tags.add(tag);
-                      if (!usages.has(tag)) {
-                        usages.set(tag, []);
-                      }
-                      usages.get(tag).push({ file, line: lineNo });
-                    }
-                  }
+                  usages.get(tag).push({ file, line: lineNo });
                 }
               }
             })

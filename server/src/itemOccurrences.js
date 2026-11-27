@@ -1,0 +1,264 @@
+/**
+ * The single implementation of "where can an item name occur in an openHAB
+ * document", shared by:
+ *
+ *  - `diagnostics.js` `findUnknownItemRefs` (unknown-item warnings — filters
+ *    the occurrences by `isKnown` and drops definitions),
+ *  - inlay hints / semantic tokens in `Server.js` (uses the occurrences with
+ *    their ranges directly; the old `itemPositions.js` module),
+ *  - `Server.rescanUsedTags` via `tagListValues` (project-local tag scan).
+ *
+ * The consumers previously each re-implemented the same regexes and drifted
+ * (e.g. the `Item X changed` trigger regex differed between diagnostics and
+ * inlay hints), so this module owns the one copy.
+ *
+ * Strings/comments are masked (positions preserved) and `val|var` locals are
+ * excluded, so a local named like an item is not reported. Everything is
+ * line-based — no tree-sitter in the Node bundle.
+ */
+'use strict'
+
+const { maskStringsAndComments } = require('./references')
+const { parseDefinitionLine } = require('./itemIndex')
+
+/** Member accesses that only make sense on items. Group 2 = trailing `.member`. */
+const ITEM_MEMBER_RE = /([A-Za-z_]\w*)(\.(?:state|sendCommand|postUpdate|members|lastState)\b)/g
+
+/** `Item X changed` / `Item X received update …` trigger. */
+const ITEM_TRIGGER_RE = /(?:^|[^A-Za-z0-9_$])Item\s+([A-Za-z_]\w*)(?![A-Za-z0-9_$])/g
+
+/** `Member of (X) …` trigger. Group 2 = trailing `)`. */
+const MEMBER_OF_RE = /Member\s+of\s*\(\s*([A-Za-z_]\w*)(\s*\))/g
+
+/** `item=X` in a sitemap widget. */
+const SITEMAP_ITEM_RE = /\bitem\s*=\s*([A-Za-z_]\w*)/g
+
+/** `visibility=[X==ON, Y!=OFF]` condition items. Group 2 = the operator. */
+const VISIBILITY_RE = /(?:\[|,)\s*([A-Za-z_]\w*)\s*(==|!=)/g
+
+/** Group list `(a, b)` on an .items line. */
+const GROUP_LIST_RE = /\(([^()]*)\)/g
+
+/** The `Items { … }` block of a .persist file (no nested braces inside). */
+const PERSIST_ITEMS_BLOCK_RE = /\bItems\s*\{([^{}]*)\}/g
+
+/** Persist entry name inside an Items block. Group 2 = optional `*`. */
+const PERSIST_NAME_RE = /(?:^|[{,]\s*|\n\s*)([A-Za-z_]\w*)(\*?)/g
+
+/** Local variable declaration in a rule body: `val X = …` / `var X = …`. */
+const LOCAL_DECL_RE = /(?:^|[^A-Za-z0-9_$])(?:val|var)\s+([A-Za-z_]\w*)\s*=/g
+
+const NAME_TOKEN_RE = /^[A-Za-z_]\w*$/
+
+/**
+ * Push `{name, index}` for every match of `re` in `masked`. `index` is the
+ * absolute start offset of the captured name (group 1); all later groups are
+ * trailing tokens whose length is subtracted from the offset math. Matches
+ * whose group 2 is `*` (persist wildcards) are skipped. `accept(index)` can
+ * veto a match (used to restrict persist names to the Items block).
+ */
+function collectMatches(re, masked, into, accept) {
+    re.lastIndex = 0
+    let m
+    while ((m = re.exec(masked)) !== null) {
+        if (m[2] === '*') {
+            continue
+        }
+        let trailing = 0
+        for (let i = 2; i < m.length; i++) {
+            trailing += (m[i] || '').length
+        }
+        const start = m.index + m[0].length - m[1].length - trailing
+        if (accept && !accept(start)) {
+            continue
+        }
+        into.push({ name: m[1], index: start })
+    }
+}
+
+/**
+ * Split `text` into lines, compute each line's start offset (lines joined
+ * with a single '\n', so offsets are internally consistent even for CRLF
+ * input — the '\r' only ever sits at a line end), and mask strings/comments
+ * per line (block-comment state carried across lines).
+ */
+function analyzeText(text) {
+    const lines = text.split(/\r?\n/)
+    const lineOffsets = []
+    let offset = 0
+    for (const line of lines) {
+        lineOffsets.push(offset)
+        offset += line.length + 1
+    }
+    const maskedLines = []
+    let inBlock = false
+    for (const line of lines) {
+        const [masked, next] = maskStringsAndComments(line, inBlock)
+        inBlock = next
+        maskedLines.push(masked)
+    }
+    return { lines, lineOffsets, maskedLines, maskedWhole: maskedLines.join('\n') }
+}
+
+/**
+ * LSP range of `name` starting at absolute offset `index`. `lineOffsets` is
+ * sorted, so the line is found by binary search (a linear scan per candidate
+ * was O(candidates x lines) per run).
+ */
+function rangeAt(lineOffsets, index, name) {
+    let lo = 0
+    let hi = lineOffsets.length - 1
+    while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1
+        if (lineOffsets[mid] <= index) {
+            lo = mid
+        } else {
+            hi = mid - 1
+        }
+    }
+    const character = index - lineOffsets[lo]
+    return { start: { line: lo, character }, end: { line: lo, character: character + name.length } }
+}
+
+/**
+ * All item-name occurrences in a document, deduplicated and with `val|var`
+ * locals excluded.
+ *
+ * @param {string} text full document text
+ * @param {string} extension file extension without dot
+ * @returns {Array<{name: string, range: object, isDefinition: boolean}>}
+ *   `isDefinition` is true only for the `.items` definition name token itself
+ *   (false for group-list references on the same line).
+ */
+function findItemOccurrences(text, extension) {
+    const { lines, lineOffsets, maskedLines, maskedWhole } = analyzeText(text)
+
+    /** @type {Array<{name: string, index: number, isDefinition?: boolean}>} */
+    const candidates = []
+
+    if (extension === 'items') {
+        for (let i = 0; i < lines.length; i++) {
+            const def = parseDefinitionLine(lines[i], i)
+            if (def) {
+                candidates.push({ name: def.name, index: lineOffsets[i] + def.range.start.character, isDefinition: true })
+            }
+            // Group list: parens after the definition name (or on lines without
+            // a definition). Parens before the name are the type chain.
+            const nameEnd = def ? lineOffsets[i] + def.range.end.character : -1
+            GROUP_LIST_RE.lastIndex = 0
+            let g
+            while ((g = GROUP_LIST_RE.exec(maskedLines[i])) !== null) {
+                if (lineOffsets[i] + g.index <= nameEnd) {
+                    continue
+                }
+                let cursor = 0
+                for (const part of g[1].split(',')) {
+                    const name = part.trim()
+                    if (NAME_TOKEN_RE.test(name)) {
+                        candidates.push({
+                            name,
+                            index: lineOffsets[i] + g.index + 1 + cursor + part.indexOf(name),
+                        })
+                    }
+                    cursor += part.length + 1
+                }
+            }
+        }
+    }
+
+    switch (extension) {
+        case 'rules':
+        case 'script':
+            collectMatches(ITEM_TRIGGER_RE, maskedWhole, candidates)
+            collectMatches(MEMBER_OF_RE, maskedWhole, candidates)
+            collectMatches(ITEM_MEMBER_RE, maskedWhole, candidates)
+            break
+        case 'sitemap':
+            collectMatches(SITEMAP_ITEM_RE, maskedWhole, candidates)
+            collectMatches(VISIBILITY_RE, maskedWhole, candidates)
+            break
+        case 'persist': {
+            // Only names inside an `Items { … }` block; a `Strategies { … }`
+            // block defines strategy names, not items.
+            const blocks = []
+            PERSIST_ITEMS_BLOCK_RE.lastIndex = 0
+            let b
+            while ((b = PERSIST_ITEMS_BLOCK_RE.exec(maskedWhole)) !== null) {
+                blocks.push([b.index + b[0].indexOf('{') + 1, b.index + b[0].length - 1])
+            }
+            collectMatches(PERSIST_NAME_RE, maskedWhole, candidates, (index) =>
+                blocks.some(([s, e]) => index >= s && index < e),
+            )
+            break
+        }
+        default:
+            break
+    }
+
+    // `val|var X = …` locals shadow item names for the rest of the rule, so
+    // exclude the name entirely (name-keyed, not position-keyed).
+    const locals = new Set()
+    let dm
+    while ((dm = LOCAL_DECL_RE.exec(maskedWhole)) !== null) {
+        locals.add(dm[1])
+    }
+
+    const seen = new Set()
+    const out = []
+    for (const c of candidates) {
+        const key = `${c.name}@${c.index}`
+        if (seen.has(key) || locals.has(c.name)) {
+            continue
+        }
+        seen.add(key)
+        out.push({
+            name: c.name,
+            range: rangeAt(lineOffsets, c.index, c.name),
+            isDefinition: !!c.isDefinition,
+        })
+    }
+    return out
+}
+
+/**
+ * The tag list of an `.items` definition line: a `["…", …]` bracket that
+ * follows the label string (and optional `<icon>`). Location config
+ * (`[ latitude=… ]`) contains `=` and is not a tag list.
+ */
+const TAG_LIST_LINE_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g
+
+/** One quoted value inside a tag list. */
+const TAG_VALUE_RE = /"([^"]*)"|'([^']*)'/g
+
+/**
+ * The quoted values of every tag list on `line`.
+ *
+ * @param {string} line raw line (offsets must stay true to the document)
+ * @returns {Array<{tag: string, character: number, bracket: number}>}
+ *   `character` is the opening quote of the value, `bracket` the `[` — pass
+ *   the masked line at `bracket` to test whether the list sits inside a
+ *   string/comment.
+ */
+function tagListValues(line) {
+    const out = []
+    TAG_LIST_LINE_RE.lastIndex = 0
+    let m
+    while ((m = TAG_LIST_LINE_RE.exec(line)) !== null) {
+        if (m[0].includes('=')) {
+            continue // Location config, not tags
+        }
+        const bracket = m.index + m[0].indexOf('[')
+        const bracketStart = bracket + 1
+        TAG_VALUE_RE.lastIndex = 0
+        let v
+        while ((v = TAG_VALUE_RE.exec(m[1])) !== null) {
+            const tag = v[1] ?? v[2]
+            if (tag) {
+                out.push({ tag, character: bracketStart + v.index + 1, bracket })
+            }
+        }
+    }
+    return out
+}
+
+module.exports = { findItemOccurrences, tagListValues, analyzeText, rangeAt }

@@ -3,7 +3,7 @@
 const test = require('node:test')
 const assert = require('node:assert')
 
-const { findItemPositions } = require('../src/itemPositions')
+const { findItemOccurrences } = require('../src/itemOccurrences')
 
 function positions(results) {
     return results.map((r) => `${r.name}@${r.range.start.line}:${r.range.start.character}`)
@@ -24,7 +24,7 @@ test('rules: trigger, member access, and Member of are found; strings/comments/l
         '    Other_Item.postUpdate(OFF)',
         'end',
     ].join('\n')
-    const found = findItemPositions(rules, 'rules')
+    const found = findItemOccurrences(rules, 'rules')
     assert.deepStrictEqual(positions(found), [
         'Kitchen_Light@2:9',
         'gLights@3:15',
@@ -40,7 +40,7 @@ test('items: definition name is flagged isDefinition; group list is not; type-ch
         'Switch Kitchen_Light "K" <light> (gLights)',
         '// Switch Ghost "x" (gAll)', // comment line: no candidates
     ].join('\n')
-    const found = findItemPositions(items, 'items')
+    const found = findItemOccurrences(items, 'items')
     assert.deepStrictEqual(positions(found), [
         'gWindowsensors@0:31',
         'gAll@0:51',
@@ -58,7 +58,7 @@ test('sitemap: item= and visibility= references', () => {
         '    Switch item=Kitchen_Light label="K" visibility=[Kitchen_Light==ON, Other==OFF]',
         '}',
     ].join('\n')
-    const found = findItemPositions(sitemap, 'sitemap')
+    const found = findItemOccurrences(sitemap, 'sitemap')
     assert.deepStrictEqual(positions(found), [
         'Kitchen_Light@2:16',
         'Kitchen_Light@2:52',
@@ -76,17 +76,17 @@ test('persist: exact names in Items block only; wildcards and Strategies skipped
         '    Kitchen_Light : strategy = everyChange',
         '}',
     ].join('\n')
-    const found = findItemPositions(persist, 'persist')
+    const found = findItemOccurrences(persist, 'persist')
     assert.deepStrictEqual(positions(found), ['Kitchen_Light@5:4'])
 })
 
 test('things and unknown extensions yield nothing', () => {
-    assert.deepStrictEqual(findItemPositions('Thing hue:0210 "X" [ Kitchen_Light ]\n', 'things'), [])
-    assert.deepStrictEqual(findItemPositions('Kitchen_Light.sendCommand(ON)\n', 'txt'), [])
+    assert.deepStrictEqual(findItemOccurrences('Thing hue:0210 "X" [ Kitchen_Light ]\n', 'things'), [])
+    assert.deepStrictEqual(findItemOccurrences('Kitchen_Light.sendCommand(ON)\n', 'txt'), [])
 })
 
 test('prefix-sharing names are matched as whole words only', () => {
     const rules = 'Kitchen_Light2.sendCommand(ON)\nKitchen_Light.sendCommand(OFF)\n'
-    const found = findItemPositions(rules, 'rules')
+    const found = findItemOccurrences(rules, 'rules')
     assert.deepStrictEqual(positions(found), ['Kitchen_Light2@0:0', 'Kitchen_Light@1:0'])
 })

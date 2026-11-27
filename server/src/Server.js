@@ -41,7 +41,7 @@ const icons = require('./icons')
 const semantictags = require('./semantictags')
 const { codeActionsAt } = require('./codeActions')
 const { findUnknownChannels, findUnknownItemRefs, findUnknownTags } = require('./diagnostics')
-const { findItemPositions } = require('./itemPositions')
+const { findItemOccurrences, tagListValues } = require('./itemOccurrences')
 const { ItemIndex, NAME_RE, collectItemsFiles } = require('./itemIndex')
 const { findReferencesInWorktree } = require('./references')
 const { ThingTypeStore } = require('./thingTypes')
@@ -555,7 +555,7 @@ class Server {
             return []
         }
         const hints = []
-        for (const pos of findItemPositions(document.getText(), extension)) {
+        for (const pos of findItemOccurrences(document.getText(), extension)) {
             const item = this.store.items.get(pos.name)
             if (!item || !item.state) {
                 continue
@@ -586,7 +586,7 @@ class Server {
             return { data: [] }
         }
         const builder = new SemanticTokensBuilder()
-        for (const pos of findItemPositions(document.getText(), extension)) {
+        for (const pos of findItemOccurrences(document.getText(), extension)) {
             builder.push(
                 pos.range.start.line,
                 pos.range.start.character,
@@ -738,10 +738,11 @@ class Server {
     }
 
     /**
-     * (Re)scan the worktree's .items files for `["…"]` tag values.
-     * Populates `_usedTags` (flat set, for completion) and `_tagUsages`
-     * (tag → [{file, line}], for position-aware diagnostics: a tag used
-     * only on the line being validated is NOT "project-known").
+     * (Re)scan the worktree's .items files for `["…"]` tag values (shared
+     * extraction: `tagListValues` in itemOccurrences.js, also used by
+     * diagnostics.js). Populates `_usedTags` (flat set, for completion) and
+     * `_tagUsages` (tag → [{file, line}], for position-aware diagnostics: a
+     * tag used only on the line being validated is NOT "project-known").
      */
     async rescanUsedTags() {
         const rootDir = this.rootDir
@@ -750,10 +751,6 @@ class Server {
         }
         const tags = new Set()
         const usages = new Map()
-        // Same tag-list shape as diagnostics.js: a […] after the label string,
-        // without '=' inside (Location config excluded).
-        const TAG_LIST_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g
-        const STRING_RE = /"([^"]*)"|'([^']*)'/g
         // Batched async reads: a large worktree must not block the event loop
         // with readFileSync nor fire hundreds of readFile calls at once.
         const files = collectItemsFiles(rootDir)
@@ -769,28 +766,15 @@ class Server {
                     }
                     const lines = text.split(/\r?\n/)
                     for (let lineNo = 0; lineNo < lines.length; lineNo++) {
-                        const line = lines[lineNo]
-                        // Only the tag list after the icon/label, i.e. a [ … ] that
-                        // follows a `"label"` on the same line; skip Location config
-                        // (`[ latitude=… ]` has `=` inside).
-                        TAG_LIST_RE.lastIndex = 0
-                        let m
-                        while ((m = TAG_LIST_RE.exec(line)) !== null) {
-                            if (m[0].includes('=')) {
-                                continue // Location config, not tags
+                        // Shared tag-list extraction (also used by
+                        // diagnostics.js): a […] after the label string,
+                        // without '=' inside (Location config excluded).
+                        for (const { tag } of tagListValues(lines[lineNo])) {
+                            tags.add(tag)
+                            if (!usages.has(tag)) {
+                                usages.set(tag, [])
                             }
-                            STRING_RE.lastIndex = 0
-                            let s
-                            while ((s = STRING_RE.exec(m[0])) !== null) {
-                                const tag = s[1] ?? s[2]
-                                if (tag) {
-                                    tags.add(tag)
-                                    if (!usages.has(tag)) {
-                                        usages.set(tag, [])
-                                    }
-                                    usages.get(tag).push({ file, line: lineNo })
-                                }
-                            }
+                            usages.get(tag).push({ file, line: lineNo })
                         }
                     }
                 }),

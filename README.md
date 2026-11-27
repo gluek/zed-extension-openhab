@@ -136,10 +136,16 @@ See [`tests/README.md`](tests/README.md) for the query-validation harness.
 ./tests/check-snapshots.sh                                      # parse-tree snapshots (20 ok)
 (cd server && npm test)                                                 # language server unit tests
 cargo build --release --target wasm32-wasip2                    # extension wasm (needs the wasm32-wasip2 target)
+./tests/check-version-sync.sh                                   # versions + SERVER_COMMIT/SERVER_SHA256 invariants
 ```
 
 (When hacking in a restricted sandbox, crate deps may need a local cargo home:
 `CARGO_HOME=$PWD/.scratch/cargo ... --offline`.)
+
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs these on
+every push and pull request: the language server tests (unit + stdio e2e),
+the wasm build (`cargo test` + `wasm32-wasip2` release build), and the
+version-sync check above.
 
 Layout:
 

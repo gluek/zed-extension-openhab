@@ -1,0 +1,50 @@
+# CI: the invariants every change must keep.
+#
+#   server — language server unit + stdio e2e tests. CI uses a standard
+#     Node from setup-node; the "Zed managed Node" note in server/README.md
+#     is about this dev machine's broken /usr/bin/node, not a CI need.
+#   wasm   — the extension compiles: host unit tests (incl. the sha256
+#     FIPS vectors) plus the shipped wasm32-wasip2 release build.
+#   sync   — tests/check-version-sync.sh: extension.toml and Cargo.toml
+#     versions match, and SERVER_COMMIT/SERVER_SHA256 match the committed
+#     server bundle (the blob the extension downloads at runtime).
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  server:
+    name: language server tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:e2e
+
+  wasm:
+    name: extension build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add wasm32-wasip2
+      - run: cargo test --locked
+      - run: cargo build --release --target wasm32-wasip2 --locked
+
+  sync:
+    name: version + bundle sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: ./tests/check-version-sync.sh

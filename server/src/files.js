@@ -51,4 +51,34 @@ function collectFiles(rootDir, accept) {
     return files.sort()
 }
 
-module.exports = { extensionOf, OPENHAB_EXTENSIONS, SKIP_DIRS, collectFiles }
+/**
+ * The text of the line at `position`, without splitting the whole document.
+ * `source` may be a TextDocument (fast path: its cached line offsets make this
+ * O(line length) instead of O(document)) or a plain string (full split).
+ *
+ * @param {string | {getText(): string, offsetAt(position: object): number, positionAt(offset: number): object}} source
+ * @param {{line: number, character: number}} position
+ * @returns {string}
+ */
+function lineAt(source, position) {
+    const text = typeof source === 'string' ? source : source.getText()
+    if (typeof source !== 'string' && typeof source.offsetAt === 'function') {
+        // Round-trip through positionAt so an out-of-range line/character is
+        // clamped before the line start is computed.
+        const pos = source.positionAt(source.offsetAt(position))
+        if (pos.line !== position.line) {
+            return '' // past the end of the document
+        }
+        const offset = source.offsetAt(pos)
+        const start = offset - pos.character
+        let end = text.indexOf('\n', offset)
+        if (end === -1) {
+            end = text.length
+        }
+        const line = text.slice(start, end)
+        return line.endsWith('\r') ? line.slice(0, -1) : line
+    }
+    return text.split(/\r?\n/)[position.line] || ''
+}
+
+module.exports = { extensionOf, OPENHAB_EXTENSIONS, SKIP_DIRS, collectFiles, lineAt }

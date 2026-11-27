@@ -350,6 +350,18 @@ function isTagPosition(extension, context) {
 }
 
 /**
+ * The partial tag typed inside `["…"]` at this position, or null when the
+ * cursor is not in a tag list. Detection and extraction live in one place so
+ * the two cannot drift.
+ */
+function tagPartial(extension, context) {
+    if (!isTagPosition(extension, context)) {
+        return null
+    }
+    return /\[[^\]=]*"([^"]*)$/.exec(context.before)[1]
+}
+
+/**
  * Semantic-tag completions for the partial inside `["…"]`.
  *
  * @param {string} partial typed text inside the quotes
@@ -368,4 +380,4 @@ function tagCompletions(partial, extraTags = []) {
     return items
 }
 
-module.exports = { SEMANTIC_TAGS, isTagPosition, tagCompletions, maskCompleteStrings }
+module.exports = { SEMANTIC_TAGS, isTagPosition, tagPartial, tagCompletions, maskCompleteStrings }

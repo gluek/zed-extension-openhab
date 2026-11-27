@@ -9,6 +9,8 @@
  */
 'use strict'
 
+const { lineAt } = require('./files')
+
 /** LSP CompletionItemKind.Variable */
 const KIND_VARIABLE = 6
 
@@ -36,11 +38,12 @@ const ITEM_TYPES = [
 /**
  * Cursor context: the cursor's line and the text either side of the cursor.
  *
- * @param {string} source full document text
+ * @param {string | object} source full document text, or the TextDocument
+ *   (preferred: avoids splitting the whole document on every keystroke)
  * @param {{line: number, character: number}} position LSP position
  */
 function contextAt(source, position) {
-    const line = source.split(/\r?\n/)[position.line] || ''
+    const line = lineAt(source, position)
     return {
         line,
         before: line.slice(0, position.character),
@@ -119,6 +122,18 @@ function isThingUidPosition(extension, context) {
     return /^\s*(?:Thing|Bridge)\s+[A-Za-z0-9_:\-]*$/.test(context.before)
 }
 
+/**
+ * The partial thing UID typed after `Thing `/`Bridge ` at this position, or
+ * null when the cursor is not there. Detection and extraction live in one
+ * place so the two cannot drift.
+ */
+function thingUidPartial(extension, context) {
+    if (!isThingUidPosition(extension, context)) {
+        return null
+    }
+    return /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before)[1]
+}
+
 /** LSP CompletionItemKind.Module */
 const KIND_MODULE = 9
 
@@ -138,6 +153,18 @@ function isChannelValuePosition(extension, context) {
     }
     // `channel="` prefix with the string still open (no closing quote yet).
     return /\bchannel\s*=\s*"[^"]*$/.test(context.before)
+}
+
+/**
+ * The partial channel UID typed inside `channel="…"` at this position, or
+ * null when the cursor is not there. Detection and extraction live in one
+ * place so the two cannot drift.
+ */
+function channelValuePartial(extension, context) {
+    if (!isChannelValuePosition(extension, context)) {
+        return null
+    }
+    return /\bchannel\s*=\s*"([^"]*)$/.exec(context.before)[1]
 }
 
 /**
@@ -236,6 +263,7 @@ module.exports = {
     ITEM_TYPES,
     contextAt,
     channelCompletions,
+    channelValuePartial,
     documentationFor,
     inStringOrComment,
     isChannelValuePosition,
@@ -244,5 +272,6 @@ module.exports = {
     itemCompletions,
     offersItems,
     thingUidCompletions,
+    thingUidPartial,
     typeCompletions,
 }

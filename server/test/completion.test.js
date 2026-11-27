@@ -6,6 +6,7 @@ const assert = require('node:assert')
 const Item = require('../src/Item')
 const completion = require('../src/completion')
 const { extensionOf } = require('../src/files')
+const { TextDocument } = require('vscode-languageserver-textdocument')
 
 const rawItem = {
     name: 'Kitchen_Temperature',
@@ -28,6 +29,19 @@ test('contextAt splits the cursor line around the position', () => {
 test('contextAt tolerates a position past the end of the document', () => {
     const ctx = completion.contextAt('a\n', { line: 9, character: 0 })
     assert.strictEqual(ctx.line, '')
+})
+
+test('contextAt accepts a TextDocument and matches the plain-string form', () => {
+    const source = 'Switch A "a"\r\nNumber B "b"\n'
+    const doc = TextDocument.create('file:///x.items', 'openhab', 1, source)
+    for (const pos of [
+        { line: 0, character: 3 },
+        { line: 1, character: 8 },
+        { line: 1, character: 99 }, // past end of line
+        { line: 9, character: 0 }, // past end of document
+    ]) {
+        assert.deepStrictEqual(completion.contextAt(doc, pos), completion.contextAt(source, pos))
+    }
 })
 
 test('inStringOrComment detects double quotes, single quotes and comments', () => {

@@ -118,12 +118,27 @@ class ItemIndex {
         this.mtimes = new Map()
     }
 
-    /** Rescan the whole worktree. */
+    /** Rescan the whole worktree (synchronous). */
     scan() {
         this.definitions.clear()
         this.mtimes.clear()
         for (const file of collectItemsFiles(this.rootDir)) {
             this.scanFile(file)
+        }
+    }
+
+    /**
+     * Async variant of `scan()`: reads the files in bounded batches, so the
+     * initial index build does not block the event loop with readFileSync and
+     * does not fire hundreds of concurrent reads on a large worktree.
+     */
+    async scanAsync() {
+        this.definitions.clear()
+        this.mtimes.clear()
+        const files = collectItemsFiles(this.rootDir)
+        const BATCH = 16
+        for (let i = 0; i < files.length; i += BATCH) {
+            await Promise.all(files.slice(i, i + BATCH).map((file) => this.scanFileAsync(file)))
         }
     }
 
@@ -140,11 +155,7 @@ class ItemIndex {
         } catch {
             return false
         }
-        // Compare with 2 ms tolerance: filesystem mtime granularity varies
-        // (ext4 has ns, some mounts only s), and a write+utimes round-trip
-        // can shift the value by a fraction of a millisecond.
-        const previous = this.mtimes.get(file)
-        if (previous !== undefined && Math.abs(previous - stat.mtimeMs) < 2) {
+        if (this._unchanged(file, stat)) {
             return false
         }
         let text
@@ -153,6 +164,44 @@ class ItemIndex {
         } catch {
             return false
         }
+        this._store(file, stat, text)
+        return true
+    }
+
+    /** Async single-file variant of `scanFile`. */
+    async scanFileAsync(file) {
+        let stat
+        try {
+            stat = await fs.promises.stat(file)
+        } catch {
+            return false
+        }
+        if (this._unchanged(file, stat)) {
+            return false
+        }
+        let text
+        try {
+            text = await fs.promises.readFile(file, 'utf8')
+        } catch {
+            return false
+        }
+        this._store(file, stat, text)
+        return true
+    }
+
+    /**
+     * mtime check shared by the sync and async scanners. Compare with 2 ms
+     * tolerance: filesystem mtime granularity varies (ext4 has ns, some
+     * mounts only s), and a write+utimes round-trip can shift the value by a
+     * fraction of a millisecond.
+     */
+    _unchanged(file, stat) {
+        const previous = this.mtimes.get(file)
+        return previous !== undefined && Math.abs(previous - stat.mtimeMs) < 2
+    }
+
+    /** Replace this file's definitions in the index. */
+    _store(file, stat, text) {
         // Drop previous definitions from this file.
         for (const [name, def] of this.definitions) {
             if (def.file === file) {
@@ -164,7 +213,6 @@ class ItemIndex {
             this.definitions.set(def.name, { ...def, uri, file, mtimeMs: stat.mtimeMs })
         }
         this.mtimes.set(file, stat.mtimeMs)
-        return true
     }
 
     /** Refresh a single file (called from didChangeWatchedFiles). */

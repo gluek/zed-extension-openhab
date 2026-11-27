@@ -29,6 +29,7 @@ const { pathToFileURL } = require('node:url')
 const path = require('node:path')
 
 const { wordRangeAt } = require('./hover')
+const { lineAt } = require('./files')
 const { NAME_RE, parseDefinitionLine } = require('./itemIndex')
 
 /** Commands offered per item type for `sendCommand` (openHAB core item commands). */
@@ -69,7 +70,7 @@ function itemNameFromChannelUid(uid) {
 /**
  * Build the code actions applicable at `params.range` in a document.
  *
- * @param {string} text full document text
+ * @param {string | object} source full document text, or the TextDocument
  * @param {string} extension file extension without dot
  * @param {{range: object, textDocument: {uri: string}, context?: {diagnostics?: object[]}}} params LSP CodeActionParams
  * @param {object} ctx
@@ -78,10 +79,11 @@ function itemNameFromChannelUid(uid) {
  * @param {(thingUID: string) => Array<{uid: string, itemType?: string, label?: string}>} ctx.channelsOf
  * @returns {Array<object>} LSP CodeAction objects (with `edit` or `command`)
  */
-function codeActionsAt(text, extension, params, ctx) {
+function codeActionsAt(source, extension, params, ctx) {
+    const text = typeof source === 'string' ? source : source.getText()
     const actions = []
     const lineNo = params.range.start.line
-    const line = text.split(/\r?\n/)[lineNo] || ''
+    const line = lineAt(source, params.range.start)
     const col = params.range.start.character
 
     /** sendCommand actions for `word` (per-type when the live item is known). */
@@ -119,7 +121,7 @@ function codeActionsAt(text, extension, params, ctx) {
                 },
             })
         }
-        pushSendCommand(wordRangeAt(text, params.range.start)?.word)
+        pushSendCommand(wordRangeAt(source, params.range.start)?.word)
         return actions
     }
 
@@ -128,7 +130,7 @@ function codeActionsAt(text, extension, params, ctx) {
         // line is where you stand when you want to toggle the item).
         const def = parseDefinitionLine(line, lineNo)
         if (def) {
-            const word = wordRangeAt(text, params.range.start)?.word
+            const word = wordRangeAt(source, params.range.start)?.word
             if (word === def.name) {
                 pushSendCommand(word)
             }
@@ -159,7 +161,7 @@ function codeActionsAt(text, extension, params, ctx) {
     }
 
     if (extension === 'sitemap') {
-        pushSendCommand(wordRangeAt(text, params.range.start)?.word)
+        pushSendCommand(wordRangeAt(source, params.range.start)?.word)
     }
 
     return actions

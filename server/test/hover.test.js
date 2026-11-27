@@ -5,6 +5,7 @@ const assert = require('node:assert')
 
 const Item = require('../src/Item')
 const hover = require('../src/hover')
+const { TextDocument } = require('vscode-languageserver-textdocument')
 
 const rawItem = {
     name: 'Kitchen_Light',
@@ -35,6 +36,21 @@ test('wordAt returns null on whitespace and past end of line', () => {
     assert.strictEqual(hover.wordAt('a b', { line: 5, character: 0 }), null)
     // past end of line clamps to the last word
     assert.strictEqual(hover.wordAt('a b', { line: 0, character: 99 }), 'b')
+})
+
+test('wordAt/wordRangeAt accept a TextDocument and match the plain-string form', () => {
+    const src = 'val x = Kitchen_Light.state\n'
+    const doc = TextDocument.create('file:///x.rules', 'openhab', 1, src)
+    for (const pos of [
+        { line: 0, character: 12 },
+        { line: 0, character: 22 },
+        { line: 0, character: 0 },
+        { line: 7, character: 0 },
+    ]) {
+        assert.strictEqual(hover.wordAt(doc, pos), hover.wordAt(src, pos))
+        assert.deepStrictEqual(hover.wordRangeAt(doc, pos), hover.wordRangeAt(src, pos))
+    }
+    assert.strictEqual(hover.wordAt(doc, { line: 0, character: 12 }), 'Kitchen_Light')
 })
 
 test('hoverFor shows only the live state as markdown', () => {

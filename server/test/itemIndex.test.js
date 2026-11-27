@@ -110,6 +110,24 @@ test('ItemIndex scans a temp worktree and resolves definitions as file URIs', ()
     }
 })
 
+test('ItemIndex.scanAsync indexes the same definitions as scan()', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-index-'))
+    try {
+        fs.writeFileSync(
+            path.join(dir, 'lamps.items'),
+            'Switch Kitchen_Light "Kitchen Light" <light>\nGroup gLights "All"\n',
+        )
+        fs.writeFileSync(path.join(dir, 'other.items'), 'Number Temp "t"\n')
+        const index = new ItemIndex({ rootDir: dir })
+        await index.scanAsync()
+        assert.strictEqual(index.size, 3)
+        assert.deepStrictEqual(index.get('Kitchen_Light').range.start, { line: 0, character: 7 })
+        assert.strictEqual(index.has('Temp'), true)
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
+})
+
 test('ItemIndex.refresh picks up edits only when mtime changes', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'openhab-index-'))
     try {

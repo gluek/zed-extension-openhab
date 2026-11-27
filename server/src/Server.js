@@ -80,7 +80,9 @@ const TOKEN_ITEM_DEF = 1
 const MOD_DECLARATION = 1 // 1 << 0
 
 /**
- * Merge user settings over the defaults.
+ * Merge user settings over the defaults. The server owns the defaults
+ * (single source of truth — the extension passes user settings through
+ * unchanged, see `user_settings` in src/openhab.rs).
  *
  * `authToken` and `basicAuth` are intentionally allowed to be explicitly null:
  * that is how a user clears a credential that was previously set.
@@ -139,7 +141,7 @@ class Server {
         // Unknown-item diagnostics, pushed on open/change and cleared on close.
         // didOpen validates immediately; didChange is debounced per document
         // (one full-document scan per keystroke is wasteful).
-        this.documents.onDidOpen((event) => this.validateDocument(event.document))
+        this.documents.onDidOpen((event) => this.validateSoon(event.document))
         this.documents.onDidChangeContent((event) => this.scheduleValidation(event.document))
         this.documents.onDidClose((event) => {
             const validate = this.validators.get(event.document.uri)
@@ -163,7 +165,7 @@ class Server {
                 }
             }
             if (tagsDirty) {
-                this.rescanUsedTags()
+                this.rescanUsedTags().catch((error) => this.log(`tag rescan failed: ${error.message}`))
             }
         })
 
@@ -191,7 +193,12 @@ class Server {
         return null
     }
 
-    /** Lazily create and scan the definition index (and the used-tag set). */
+    /**
+     * Lazily create the definition index and kick off the initial scan. The
+     * scan reads every `.items` file in the worktree, so it runs async in
+     * bounded batches instead of blocking the event loop; `readyIndex()`
+     * awaits the in-flight scan (and the used-tag rescan it triggers).
+     */
     getIndex() {
         if (!this.index) {
             const rootDir = this.rootDir
@@ -199,11 +206,24 @@ class Server {
                 return null
             }
             this.index = new ItemIndex({ rootDir })
-            this.index.scan()
-            this.log(`indexed ${this.index.size} item definitions under ${rootDir}`)
-            this.rescanUsedTags()
+            this.indexScan = this.index
+                .scanAsync()
+                .then(() => {
+                    this.log(`indexed ${this.index.size} item definitions under ${rootDir}`)
+                    return this.rescanUsedTags()
+                })
+                .catch((error) => this.log(`index scan failed: ${error.message}`))
         }
         return this.index
+    }
+
+    /** The definition index, awaited until the initial scan has finished. */
+    async readyIndex() {
+        const index = this.getIndex()
+        if (this.indexScan) {
+            await this.indexScan
+        }
+        return index
     }
 
     /**
@@ -272,7 +292,7 @@ class Server {
         // Things may have loaded (or reloaded) after the open documents were
         // validated — re-run validation so channel links are checked.
         for (const document of this.documents.all()) {
-            this.validateDocument(document)
+            this.validateSoon(document)
         }
     }
 
@@ -315,53 +335,53 @@ class Server {
             this.things.stop()
             await this.things.start(this.settings)
             for (const document of this.documents.all()) {
-                this.validateDocument(document)
+                this.validateSoon(document)
             }
         }
     }
 
     /** Completion scoped to the positions where openHAB accepts item names. */
-    getCompletion(params) {
+    async getCompletion(params) {
         const document = this.documents.get(params.textDocument.uri)
         if (!document) {
             return { isIncomplete: false, items: [] }
         }
         const extension = extensionOf(params.textDocument.uri)
-        const context = completion.contextAt(document.getText(), params.position)
+        const context = completion.contextAt(document, params.position)
 
         if (completion.isItemTypePosition(extension, context)) {
             return { isIncomplete: false, items: completion.typeCompletions() }
         }
         // `.items`: channel="…" value completion.
-        if (completion.isChannelValuePosition(extension, context)) {
-            const partial = /\bchannel\s*=\s*"([^"]*)$/.exec(context.before)[1]
+        const channelPartial = completion.channelValuePartial(extension, context)
+        if (channelPartial !== null) {
             return {
                 isIncomplete: false,
-                items: completion.channelCompletions(partial, this.things.allChannels),
+                items: completion.channelCompletions(channelPartial, this.things.allChannels),
             }
         }
         // `.items`: `<icon>` clause completion.
-        if (icons.isIconPosition(extension, context)) {
-            const partial = /<([^>]*)$/.exec(context.before)[1]
-            return { isIncomplete: false, items: icons.iconCompletions(partial) }
+        const iconPartial = icons.iconPartial(extension, context)
+        if (iconPartial !== null) {
+            return { isIncomplete: false, items: icons.iconCompletions(iconPartial) }
         }
         // `.items`: `["…"]` semantic-tag completion, plus tags already
         // used in the worktree's .items files.
-        if (semantictags.isTagPosition(extension, context)) {
-            const partial = /\[[^\]=]*"([^"]*)$/.exec(context.before)[1]
+        const tagPartial = semantictags.tagPartial(extension, context)
+        if (tagPartial !== null) {
             // Make sure the project-local tag set is scanned before use.
-            this.getIndex()
+            await this.readyIndex()
             return {
                 isIncomplete: false,
-                items: semantictags.tagCompletions(partial, this.usedTags()),
+                items: semantictags.tagCompletions(tagPartial, this.usedTags()),
             }
         }
         // `.things`: thing-type UID completion after `Thing `/`Bridge `.
-        if (completion.isThingUidPosition(extension, context)) {
-            const partial = /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before)[1]
+        const uidPartial = completion.thingUidPartial(extension, context)
+        if (uidPartial !== null) {
             return {
                 isIncomplete: false,
-                items: completion.thingUidCompletions(partial, this.thingTypes.bindingIds, (b) =>
+                items: completion.thingUidCompletions(uidPartial, this.thingTypes.bindingIds, (b) =>
                     this.thingTypes.uidsForBinding(b),
                 ),
             }
@@ -379,8 +399,7 @@ class Server {
             this.log(`hover: document not found: ${params.textDocument.uri}`)
             return null
         }
-        const text = document.getText()
-        const word = hover.wordAt(text, params.position)
+        const word = hover.wordAt(document, params.position)
         if (!word) {
             return null
         }
@@ -398,16 +417,16 @@ class Server {
      * Items that exist only on the openHAB instance (no local definition)
      * return null — there is no file to jump to.
      */
-    getDefinition(params) {
+    async getDefinition(params) {
         const document = this.documents.get(params.textDocument.uri)
         if (!document) {
             return null
         }
-        const word = hover.wordAt(document.getText(), params.position)
+        const word = hover.wordAt(document, params.position)
         if (!word) {
             return null
         }
-        const index = this.getIndex()
+        const index = await this.readyIndex()
         const def = index && index.get(word)
         if (!def) {
             return null
@@ -432,12 +451,12 @@ class Server {
      * References: every usage of the item under the cursor across the
      * worktree's openHAB files. `includeDeclaration` adds the definition.
      */
-    getReferences(params) {
+    async getReferences(params) {
         const document = this.documents.get(params.textDocument.uri)
         if (!document) {
             return []
         }
-        const word = hover.wordAt(document.getText(), params.position)
+        const word = hover.wordAt(document, params.position)
         if (!word) {
             return []
         }
@@ -449,7 +468,7 @@ class Server {
         const extraFiles = this.openDocumentPaths()
         const locations = findReferencesInWorktree(rootDir, word, { extraFiles })
         if (params.context?.includeDeclaration) {
-            const index = this.getIndex()
+            const index = await this.readyIndex()
             const def = index && index.get(word)
             if (def) {
                 locations.push({ uri: def.uri, range: def.range })
@@ -463,17 +482,17 @@ class Server {
      * known item (locally defined or present on the openHAB instance).
      * Returns the word's range, or null to reject the rename.
      */
-    prepareRename(params) {
+    async prepareRename(params) {
         const document = this.documents.get(params.textDocument.uri)
         if (!document) {
             return null
         }
-        const at = hover.wordRangeAt(document.getText(), params.position)
+        const at = hover.wordRangeAt(document, params.position)
         if (!at || !NAME_RE.test(at.word)) {
             return null
         }
         const word = at.word
-        const index = this.getIndex()
+        const index = await this.readyIndex()
         const known = (index && index.has(word)) || this.store.items.has(word)
         if (!known) {
             return null
@@ -487,12 +506,12 @@ class Server {
      * running openHAB instance is not renamed (that would need a REST call
      * and is a deliberate non-goal for now).
      */
-    rename(params) {
+    async rename(params) {
         const document = this.documents.get(params.textDocument.uri)
         if (!document) {
             return null
         }
-        const word = hover.wordAt(document.getText(), params.position)
+        const word = hover.wordAt(document, params.position)
         const newName = params.newName
         if (!word || !NAME_RE.test(newName)) {
             return null
@@ -503,7 +522,7 @@ class Server {
         }
         const extraFiles = this.openDocumentPaths()
         const locations = findReferencesInWorktree(rootDir, word, { extraFiles })
-        const index = this.getIndex()
+        const index = await this.readyIndex()
         const def = index && index.get(word)
         if (def) {
             locations.push({ uri: def.uri, range: def.range })
@@ -613,13 +632,14 @@ class Server {
      * Code actions: run rule, send command to an item, create item from
      * a channel. See codeActions.js for the position rules.
      */
-    getCodeActions(params) {
+    async getCodeActions(params) {
         const document = this.documents.get(params.textDocument.uri)
         if (!document) {
             return []
         }
         const extension = extensionOf(params.textDocument.uri)
-        return codeActionsAt(document.getText(), extension, params, {
+        await this.readyIndex()
+        return codeActionsAt(document, extension, params, {
             itemFor: (name) => this.store.items.get(name),
             isKnownItem: (name) => this.isKnownItem(name),
             channelsOf: (thingUID) => this.things.channelsOf(thingUID),
@@ -723,7 +743,7 @@ class Server {
      * (tag → [{file, line}], for position-aware diagnostics: a tag used
      * only on the line being validated is NOT "project-known").
      */
-    rescanUsedTags() {
+    async rescanUsedTags() {
         const rootDir = this.rootDir
         if (!rootDir) {
             return
@@ -734,39 +754,47 @@ class Server {
         // without '=' inside (Location config excluded).
         const TAG_LIST_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g
         const STRING_RE = /"([^"]*)"|'([^']*)'/g
-        for (const file of collectItemsFiles(rootDir)) {
-            let text
-            try {
-                text = fs.readFileSync(file, 'utf8')
-            } catch {
-                continue
-            }
-            const lines = text.split(/\r?\n/)
-            for (let lineNo = 0; lineNo < lines.length; lineNo++) {
-                const line = lines[lineNo]
-                // Only the tag list after the icon/label, i.e. a [ … ] that
-                // follows a `"label"` on the same line; skip Location config
-                // (`[ latitude=… ]` has `=` inside).
-                TAG_LIST_RE.lastIndex = 0
-                let m
-                while ((m = TAG_LIST_RE.exec(line)) !== null) {
-                    if (m[0].includes('=')) {
-                        continue // Location config, not tags
+        // Batched async reads: a large worktree must not block the event loop
+        // with readFileSync nor fire hundreds of readFile calls at once.
+        const files = collectItemsFiles(rootDir)
+        const BATCH = 16
+        for (let i = 0; i < files.length; i += BATCH) {
+            await Promise.all(
+                files.slice(i, i + BATCH).map(async (file) => {
+                    let text
+                    try {
+                        text = await fs.promises.readFile(file, 'utf8')
+                    } catch {
+                        return
                     }
-                    STRING_RE.lastIndex = 0
-                    let s
-                    while ((s = STRING_RE.exec(m[0])) !== null) {
-                        const tag = s[1] ?? s[2]
-                        if (tag) {
-                            tags.add(tag)
-                            if (!usages.has(tag)) {
-                                usages.set(tag, [])
+                    const lines = text.split(/\r?\n/)
+                    for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+                        const line = lines[lineNo]
+                        // Only the tag list after the icon/label, i.e. a [ … ] that
+                        // follows a `"label"` on the same line; skip Location config
+                        // (`[ latitude=… ]` has `=` inside).
+                        TAG_LIST_RE.lastIndex = 0
+                        let m
+                        while ((m = TAG_LIST_RE.exec(line)) !== null) {
+                            if (m[0].includes('=')) {
+                                continue // Location config, not tags
                             }
-                            usages.get(tag).push({ file, line: lineNo })
+                            STRING_RE.lastIndex = 0
+                            let s
+                            while ((s = STRING_RE.exec(m[0])) !== null) {
+                                const tag = s[1] ?? s[2]
+                                if (tag) {
+                                    tags.add(tag)
+                                    if (!usages.has(tag)) {
+                                        usages.set(tag, [])
+                                    }
+                                    usages.get(tag).push({ file, line: lineNo })
+                                }
+                            }
                         }
                     }
-                }
-            }
+                }),
+            )
         }
         this._usedTags = tags
         this._tagUsages = usages
@@ -805,17 +833,24 @@ class Server {
     scheduleValidation(document) {
         let validate = this.validators.get(document.uri)
         if (!validate) {
-            validate = debounce((doc) => this.validateDocument(doc), VALIDATION_DEBOUNCE_MS)
+            validate = debounce((doc) => this.validateSoon(doc), VALIDATION_DEBOUNCE_MS)
             this.validators.set(document.uri, validate)
         }
         validate(document)
     }
 
+    /** Fire-and-forget validation entry point (didOpen / didChange / reconnect). */
+    validateSoon(document) {
+        this.validateDocument(document).catch((error) => this.log(`validateDocument failed: ${error.message}`))
+    }
+
     /**
      * Publish diagnostics for unknown item references in an open document.
      * Runs on didOpen and debounced on didChange; cleared on didClose.
+     * Awaits the initial index scan first so `isKnownItem`/`isKnownTagAt`
+     * see the worktree's definitions (no false warnings during the scan).
      */
-    validateDocument(document) {
+    async validateDocument(document) {
         if (!document) {
             return
         }
@@ -823,13 +858,13 @@ class Server {
         if (!OPENHAB_EXTENSIONS.includes(extension)) {
             return
         }
+        await this.readyIndex()
         const text = document.getText()
         const found = findUnknownItemRefs(text, extension, (name) => this.isKnownItem(name))
         // `.items` additionally gets unknown-semantic-tag warnings:
         // known = ontology ∪ tags used elsewhere in the worktree ∪ tags on
         // live items from the REST cache.
         if (extension === 'items') {
-            this.getIndex() // ensures usedTags are scanned
             let file = null
             try {
                 file = fileURLToPath(document.uri)

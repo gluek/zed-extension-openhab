@@ -11,6 +11,8 @@
  */
 'use strict'
 
+const { lineAt } = require('./files')
+
 /** Characters that make up an openHAB item name at the cursor. */
 const WORD_CHAR = /[A-Za-z0-9_$]/
 
@@ -18,12 +20,13 @@ const WORD_CHAR = /[A-Za-z0-9_$]/
  * The word under the cursor and its LSP range, or null when the cursor is not
  * on a word.
  *
- * @param {string} source full document text
+ * @param {string | object} source full document text, or the TextDocument
+ *   (preferred: avoids splitting the whole document per request)
  * @param {{line: number, character: number}} position LSP position
  * @returns {{word: string, range: {start: {line: number, character: number}, end: {line: number, character: number}}} | null}
  */
 function wordRangeAt(source, position) {
-    const line = source.split(/\r?\n/)[position.line] || ''
+    const line = lineAt(source, position)
     const col = Math.min(position.character, line.length)
     if (!WORD_CHAR.test(line[col] || '') && !(col > 0 && WORD_CHAR.test(line[col - 1]))) {
         return null
@@ -52,7 +55,7 @@ function wordRangeAt(source, position) {
 /**
  * The item name under the cursor, or null when the cursor is not on a word.
  *
- * @param {string} source full document text
+ * @param {string | object} source full document text, or the TextDocument
  * @param {{line: number, character: number}} position LSP position
  */
 function wordAt(source, position) {

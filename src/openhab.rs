@@ -77,36 +77,14 @@ impl OpenHabExtension {
         Ok(script)
     }
 
-    /// User overrides from Zed's `lsp.openhab-lsp.settings`.
+    /// User overrides from Zed's `lsp.openhab-lsp.settings`, passed through
+    /// unchanged. The server owns the defaults (DEFAULT_SETTINGS in
+    /// server/src/Server.js), so there is a single source of truth.
     fn user_settings(worktree: &Worktree) -> serde_json::Value {
         zed::settings::LspSettings::for_worktree(SERVER_ID, worktree)
             .ok()
             .and_then(|settings| settings.settings)
             .unwrap_or_else(|| json!({}))
-    }
-
-    /// Fill in defaults for keys the server expects but the user omitted.
-    ///
-    /// Defaults mirror the VS Code extension's contributed configuration:
-    /// `openhab.connection.host` defaults to `localhost` and `port` to 8080.
-    /// `itemCasing` is deliberately absent: upstream only uses it for the
-    /// "Create Items from Channels" command, which has no Zed equivalent, so
-    /// shipping it here would be dead configuration.
-    fn with_defaults(mut settings: serde_json::Value) -> serde_json::Value {
-        let defaults = json!({
-            "host": "localhost",
-            "port": 8080,
-            "authToken": null,
-            "basicAuth": null,
-            "lspEnabled": true,
-        });
-
-        if let (Some(target), Some(defaults)) = (settings.as_object_mut(), defaults.as_object()) {
-            for (key, value) in defaults {
-                target.entry(key.clone()).or_insert_with(|| value.clone());
-            }
-        }
-        settings
     }
 }
 
@@ -145,7 +123,7 @@ impl Extension for OpenHabExtension {
         if language_server_id.as_ref() != SERVER_ID {
             return Ok(None);
         }
-        Ok(Some(Self::with_defaults(Self::user_settings(worktree))))
+        Ok(Some(Self::user_settings(worktree)))
     }
 
     fn language_server_workspace_configuration(
@@ -159,7 +137,7 @@ impl Extension for OpenHabExtension {
         // The server asks for the `openhab` section specifically, so the
         // resolved settings are nested under that key.
         Ok(Some(json!({
-            "openhab": Self::with_defaults(Self::user_settings(worktree)),
+            "openhab": Self::user_settings(worktree),
         })))
     }
 }

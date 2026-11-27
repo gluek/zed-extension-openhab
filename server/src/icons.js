@@ -136,6 +136,18 @@ function isIconPosition(extension, context) {
     return /<[^>\n]*$/.test(masked) && ITEM_PREFIX_OPEN_RE.test(masked)
 }
 
+/**
+ * The partial icon name inside `<…>` at this position, or null when the
+ * cursor is not in an icon clause. Detection and extraction live in one place
+ * so the two cannot drift.
+ */
+function iconPartial(extension, context) {
+    if (!isIconPosition(extension, context)) {
+        return null
+    }
+    return /<([^>]*)$/.exec(context.before)[1]
+}
+
 /** Icon completions for the partial inside `<…>`. */
 function iconCompletions(partial) {
     const items = OH_ICONS.filter((icon) => icon.startsWith(partial.toLowerCase())).map((icon) => ({
@@ -152,4 +164,4 @@ function iconCompletions(partial) {
     return items
 }
 
-module.exports = { OH_ICONS, ICON_PREFIXES, isIconPosition, iconCompletions }
+module.exports = { OH_ICONS, ICON_PREFIXES, isIconPosition, iconPartial, iconCompletions }

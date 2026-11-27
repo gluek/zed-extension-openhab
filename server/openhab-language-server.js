@@ -7892,10 +7892,69 @@ var require_ItemStore = __commonJS({
   }
 });
 
+// src/files.js
+var require_files2 = __commonJS({
+  "src/files.js"(exports2, module2) {
+    "use strict";
+    var fs = require("node:fs");
+    var path = require("node:path");
+    function extensionOf(uri) {
+      const match = /\.([A-Za-z]+)$/.exec(uri || "");
+      return match ? match[1].toLowerCase() : "";
+    }
+    var OPENHAB_EXTENSIONS = ["items", "rules", "script", "sitemap", "things", "persist"];
+    var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".scratch", "target"]);
+    function collectFiles(rootDir, accept) {
+      const files = [];
+      const stack = [rootDir];
+      while (stack.length) {
+        const dir = stack.pop();
+        let entries;
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (!SKIP_DIRS.has(entry.name)) {
+              stack.push(full);
+            }
+          } else if (entry.isFile() && accept(entry.name)) {
+            files.push(full);
+          }
+        }
+      }
+      return files.sort();
+    }
+    function lineAt(source, position) {
+      const text = typeof source === "string" ? source : source.getText();
+      if (typeof source !== "string" && typeof source.offsetAt === "function") {
+        const pos = source.positionAt(source.offsetAt(position));
+        if (pos.line !== position.line) {
+          return "";
+        }
+        const offset = source.offsetAt(pos);
+        const start = offset - pos.character;
+        let end = text.indexOf("\n", offset);
+        if (end === -1) {
+          end = text.length;
+        }
+        const line = text.slice(start, end);
+        return line.endsWith("\r") ? line.slice(0, -1) : line;
+      }
+      return text.split(/\r?\n/)[position.line] || "";
+    }
+    module2.exports = { extensionOf, OPENHAB_EXTENSIONS, SKIP_DIRS, collectFiles, lineAt };
+  }
+});
+
 // src/completion.js
 var require_completion = __commonJS({
   "src/completion.js"(exports2, module2) {
     "use strict";
+    var { lineAt } = require_files2();
     var KIND_VARIABLE = 6;
     var ITEM_TYPES = [
       "Color",
@@ -7912,7 +7971,7 @@ var require_completion = __commonJS({
       "Switch"
     ];
     function contextAt(source, position) {
-      const line = source.split(/\r?\n/)[position.line] || "";
+      const line = lineAt(source, position);
       return {
         line,
         before: line.slice(0, position.character),
@@ -7956,6 +8015,12 @@ var require_completion = __commonJS({
       }
       return /^\s*(?:Thing|Bridge)\s+[A-Za-z0-9_:\-]*$/.test(context.before);
     }
+    function thingUidPartial(extension, context) {
+      if (!isThingUidPosition(extension, context)) {
+        return null;
+      }
+      return /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before)[1];
+    }
     var KIND_MODULE = 9;
     var KIND_FIELD = 5;
     function isChannelValuePosition(extension, context) {
@@ -7963,6 +8028,12 @@ var require_completion = __commonJS({
         return false;
       }
       return /\bchannel\s*=\s*"[^"]*$/.test(context.before);
+    }
+    function channelValuePartial(extension, context) {
+      if (!isChannelValuePosition(extension, context)) {
+        return null;
+      }
+      return /\bchannel\s*=\s*"([^"]*)$/.exec(context.before)[1];
     }
     function channelCompletions(partial, allChannels) {
       return allChannels.filter((ch) => ch.uid.startsWith(partial) || ch.uid.includes(":" + partial)).map((ch) => ({
@@ -8027,6 +8098,7 @@ var require_completion = __commonJS({
       ITEM_TYPES,
       contextAt,
       channelCompletions,
+      channelValuePartial,
       documentationFor,
       inStringOrComment,
       isChannelValuePosition,
@@ -8035,6 +8107,7 @@ var require_completion = __commonJS({
       itemCompletions,
       offersItems,
       thingUidCompletions,
+      thingUidPartial,
       typeCompletions
     };
   }
@@ -8044,9 +8117,10 @@ var require_completion = __commonJS({
 var require_hover = __commonJS({
   "src/hover.js"(exports2, module2) {
     "use strict";
+    var { lineAt } = require_files2();
     var WORD_CHAR = /[A-Za-z0-9_$]/;
     function wordRangeAt(source, position) {
-      const line = source.split(/\r?\n/)[position.line] || "";
+      const line = lineAt(source, position);
       const col = Math.min(position.character, line.length);
       if (!WORD_CHAR.test(line[col] || "") && !(col > 0 && WORD_CHAR.test(line[col - 1]))) {
         return null;
@@ -8082,46 +8156,6 @@ var require_hover = __commonJS({
       };
     }
     module2.exports = { wordAt, wordRangeAt, hoverFor, WORD_CHAR };
-  }
-});
-
-// src/files.js
-var require_files2 = __commonJS({
-  "src/files.js"(exports2, module2) {
-    "use strict";
-    var fs = require("node:fs");
-    var path = require("node:path");
-    function extensionOf(uri) {
-      const match = /\.([A-Za-z]+)$/.exec(uri || "");
-      return match ? match[1].toLowerCase() : "";
-    }
-    var OPENHAB_EXTENSIONS = ["items", "rules", "script", "sitemap", "things", "persist"];
-    var SKIP_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".scratch", "target"]);
-    function collectFiles(rootDir, accept) {
-      const files = [];
-      const stack = [rootDir];
-      while (stack.length) {
-        const dir = stack.pop();
-        let entries;
-        try {
-          entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-          continue;
-        }
-        for (const entry of entries) {
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            if (!SKIP_DIRS.has(entry.name)) {
-              stack.push(full);
-            }
-          } else if (entry.isFile() && accept(entry.name)) {
-            files.push(full);
-          }
-        }
-      }
-      return files.sort();
-    }
-    module2.exports = { extensionOf, OPENHAB_EXTENSIONS, SKIP_DIRS, collectFiles };
   }
 });
 
@@ -8437,6 +8471,12 @@ var require_semantictags = __commonJS({
       const masked = maskCompleteStrings(head);
       return ITEM_PREFIX_ICON_CLOSED_RE.test(masked);
     }
+    function tagPartial(extension, context) {
+      if (!isTagPosition(extension, context)) {
+        return null;
+      }
+      return /\[[^\]=]*"([^"]*)$/.exec(context.before)[1];
+    }
     function tagCompletions(partial, extraTags = []) {
       const seen = /* @__PURE__ */ new Set();
       const items = [];
@@ -8449,7 +8489,7 @@ var require_semantictags = __commonJS({
       }
       return items;
     }
-    module2.exports = { SEMANTIC_TAGS, isTagPosition, tagCompletions, maskCompleteStrings };
+    module2.exports = { SEMANTIC_TAGS, isTagPosition, tagPartial, tagCompletions, maskCompleteStrings };
   }
 });
 
@@ -8555,6 +8595,12 @@ var require_icons = __commonJS({
       const masked = maskCompleteStrings(before);
       return /<[^>\n]*$/.test(masked) && ITEM_PREFIX_OPEN_RE.test(masked);
     }
+    function iconPartial(extension, context) {
+      if (!isIconPosition(extension, context)) {
+        return null;
+      }
+      return /<([^>]*)$/.exec(context.before)[1];
+    }
     function iconCompletions(partial) {
       const items = OH_ICONS.filter((icon) => icon.startsWith(partial.toLowerCase())).map((icon) => ({
         label: icon,
@@ -8568,7 +8614,7 @@ var require_icons = __commonJS({
       }
       return items;
     }
-    module2.exports = { OH_ICONS, ICON_PREFIXES, isIconPosition, iconCompletions };
+    module2.exports = { OH_ICONS, ICON_PREFIXES, isIconPosition, iconPartial, iconCompletions };
   }
 });
 
@@ -8653,12 +8699,26 @@ var require_itemIndex = __commonJS({
         this.definitions = /* @__PURE__ */ new Map();
         this.mtimes = /* @__PURE__ */ new Map();
       }
-      /** Rescan the whole worktree. */
+      /** Rescan the whole worktree (synchronous). */
       scan() {
         this.definitions.clear();
         this.mtimes.clear();
         for (const file of collectItemsFiles(this.rootDir)) {
           this.scanFile(file);
+        }
+      }
+      /**
+       * Async variant of `scan()`: reads the files in bounded batches, so the
+       * initial index build does not block the event loop with readFileSync and
+       * does not fire hundreds of concurrent reads on a large worktree.
+       */
+      async scanAsync() {
+        this.definitions.clear();
+        this.mtimes.clear();
+        const files = collectItemsFiles(this.rootDir);
+        const BATCH = 16;
+        for (let i = 0; i < files.length; i += BATCH) {
+          await Promise.all(files.slice(i, i + BATCH).map((file) => this.scanFileAsync(file)));
         }
       }
       /**
@@ -8674,8 +8734,7 @@ var require_itemIndex = __commonJS({
         } catch {
           return false;
         }
-        const previous = this.mtimes.get(file);
-        if (previous !== void 0 && Math.abs(previous - stat.mtimeMs) < 2) {
+        if (this._unchanged(file, stat)) {
           return false;
         }
         let text;
@@ -8684,6 +8743,41 @@ var require_itemIndex = __commonJS({
         } catch {
           return false;
         }
+        this._store(file, stat, text);
+        return true;
+      }
+      /** Async single-file variant of `scanFile`. */
+      async scanFileAsync(file) {
+        let stat;
+        try {
+          stat = await fs.promises.stat(file);
+        } catch {
+          return false;
+        }
+        if (this._unchanged(file, stat)) {
+          return false;
+        }
+        let text;
+        try {
+          text = await fs.promises.readFile(file, "utf8");
+        } catch {
+          return false;
+        }
+        this._store(file, stat, text);
+        return true;
+      }
+      /**
+       * mtime check shared by the sync and async scanners. Compare with 2 ms
+       * tolerance: filesystem mtime granularity varies (ext4 has ns, some
+       * mounts only s), and a write+utimes round-trip can shift the value by a
+       * fraction of a millisecond.
+       */
+      _unchanged(file, stat) {
+        const previous = this.mtimes.get(file);
+        return previous !== void 0 && Math.abs(previous - stat.mtimeMs) < 2;
+      }
+      /** Replace this file's definitions in the index. */
+      _store(file, stat, text) {
         for (const [name, def] of this.definitions) {
           if (def.file === file) {
             this.definitions.delete(name);
@@ -8694,7 +8788,6 @@ var require_itemIndex = __commonJS({
           this.definitions.set(def.name, { ...def, uri, file, mtimeMs: stat.mtimeMs });
         }
         this.mtimes.set(file, stat.mtimeMs);
-        return true;
       }
       /** Refresh a single file (called from didChangeWatchedFiles). */
       refresh(file) {
@@ -8737,6 +8830,7 @@ var require_codeActions = __commonJS({
     var { pathToFileURL } = require("node:url");
     var path = require("node:path");
     var { wordRangeAt } = require_hover();
+    var { lineAt } = require_files2();
     var { NAME_RE, parseDefinitionLine } = require_itemIndex();
     var COMMANDS_BY_TYPE = {
       Switch: ["ON", "OFF"],
@@ -8759,10 +8853,11 @@ var require_codeActions = __commonJS({
       const cleaned = uid.split(":").map((part) => part.replace(/[^A-Za-z0-9_]/g, "_")).filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("_");
       return /^[A-Za-z_]/.test(cleaned) ? cleaned : `Item_${cleaned}`;
     }
-    function codeActionsAt(text, extension, params, ctx) {
+    function codeActionsAt(source, extension, params, ctx) {
+      const text = typeof source === "string" ? source : source.getText();
       const actions = [];
       const lineNo = params.range.start.line;
-      const line = text.split(/\r?\n/)[lineNo] || "";
+      const line = lineAt(source, params.range.start);
       const col = params.range.start.character;
       const pushSendCommand = (word) => {
         if (!word || !NAME_RE.test(word) || !ctx.isKnownItem(word)) {
@@ -8796,13 +8891,13 @@ var require_codeActions = __commonJS({
             }
           });
         }
-        pushSendCommand(wordRangeAt(text, params.range.start)?.word);
+        pushSendCommand(wordRangeAt(source, params.range.start)?.word);
         return actions;
       }
       if (extension === "items") {
         const def = parseDefinitionLine(line, lineNo);
         if (def) {
-          const word = wordRangeAt(text, params.range.start)?.word;
+          const word = wordRangeAt(source, params.range.start)?.word;
           if (word === def.name) {
             pushSendCommand(word);
           }
@@ -8829,7 +8924,7 @@ var require_codeActions = __commonJS({
         return actions;
       }
       if (extension === "sitemap") {
-        pushSendCommand(wordRangeAt(text, params.range.start)?.word);
+        pushSendCommand(wordRangeAt(source, params.range.start)?.word);
       }
       return actions;
     }
@@ -9714,7 +9809,7 @@ var require_Server = __commonJS({
         this.connection.onExecuteCommand(this.executeCommand.bind(this));
         this.documents = new TextDocuments(TextDocument2);
         this.documents.listen(this.connection);
-        this.documents.onDidOpen((event) => this.validateDocument(event.document));
+        this.documents.onDidOpen((event) => this.validateSoon(event.document));
         this.documents.onDidChangeContent((event) => this.scheduleValidation(event.document));
         this.documents.onDidClose((event) => {
           const validate = this.validators.get(event.document.uri);
@@ -9734,7 +9829,7 @@ var require_Server = __commonJS({
             }
           }
           if (tagsDirty) {
-            this.rescanUsedTags();
+            this.rescanUsedTags().catch((error) => this.log(`tag rescan failed: ${error.message}`));
           }
         });
         this.connection.listen();
@@ -9757,7 +9852,12 @@ var require_Server = __commonJS({
         }
         return null;
       }
-      /** Lazily create and scan the definition index (and the used-tag set). */
+      /**
+       * Lazily create the definition index and kick off the initial scan. The
+       * scan reads every `.items` file in the worktree, so it runs async in
+       * bounded batches instead of blocking the event loop; `readyIndex()`
+       * awaits the in-flight scan (and the used-tag rescan it triggers).
+       */
       getIndex() {
         if (!this.index) {
           const rootDir = this.rootDir;
@@ -9765,11 +9865,20 @@ var require_Server = __commonJS({
             return null;
           }
           this.index = new ItemIndex({ rootDir });
-          this.index.scan();
-          this.log(`indexed ${this.index.size} item definitions under ${rootDir}`);
-          this.rescanUsedTags();
+          this.indexScan = this.index.scanAsync().then(() => {
+            this.log(`indexed ${this.index.size} item definitions under ${rootDir}`);
+            return this.rescanUsedTags();
+          }).catch((error) => this.log(`index scan failed: ${error.message}`));
         }
         return this.index;
+      }
+      /** The definition index, awaited until the initial scan has finished. */
+      async readyIndex() {
+        const index = this.getIndex();
+        if (this.indexScan) {
+          await this.indexScan;
+        }
+        return index;
       }
       /**
        * Status messages go to the client as LSP log messages, which Zed shows in
@@ -9826,7 +9935,7 @@ var require_Server = __commonJS({
         await this.thingTypes.load(this.settings);
         await this.things.start(this.settings);
         for (const document of this.documents.all()) {
-          this.validateDocument(document);
+          this.validateSoon(document);
         }
       }
       /**
@@ -9865,46 +9974,46 @@ var require_Server = __commonJS({
           this.things.stop();
           await this.things.start(this.settings);
           for (const document of this.documents.all()) {
-            this.validateDocument(document);
+            this.validateSoon(document);
           }
         }
       }
       /** Completion scoped to the positions where openHAB accepts item names. */
-      getCompletion(params) {
+      async getCompletion(params) {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
           return { isIncomplete: false, items: [] };
         }
         const extension = extensionOf(params.textDocument.uri);
-        const context = completion.contextAt(document.getText(), params.position);
+        const context = completion.contextAt(document, params.position);
         if (completion.isItemTypePosition(extension, context)) {
           return { isIncomplete: false, items: completion.typeCompletions() };
         }
-        if (completion.isChannelValuePosition(extension, context)) {
-          const partial = /\bchannel\s*=\s*"([^"]*)$/.exec(context.before)[1];
+        const channelPartial = completion.channelValuePartial(extension, context);
+        if (channelPartial !== null) {
           return {
             isIncomplete: false,
-            items: completion.channelCompletions(partial, this.things.allChannels)
+            items: completion.channelCompletions(channelPartial, this.things.allChannels)
           };
         }
-        if (icons.isIconPosition(extension, context)) {
-          const partial = /<([^>]*)$/.exec(context.before)[1];
-          return { isIncomplete: false, items: icons.iconCompletions(partial) };
+        const iconPartial = icons.iconPartial(extension, context);
+        if (iconPartial !== null) {
+          return { isIncomplete: false, items: icons.iconCompletions(iconPartial) };
         }
-        if (semantictags.isTagPosition(extension, context)) {
-          const partial = /\[[^\]=]*"([^"]*)$/.exec(context.before)[1];
-          this.getIndex();
+        const tagPartial = semantictags.tagPartial(extension, context);
+        if (tagPartial !== null) {
+          await this.readyIndex();
           return {
             isIncomplete: false,
-            items: semantictags.tagCompletions(partial, this.usedTags())
+            items: semantictags.tagCompletions(tagPartial, this.usedTags())
           };
         }
-        if (completion.isThingUidPosition(extension, context)) {
-          const partial = /^\s*(?:Thing|Bridge)\s+([A-Za-z0-9_:\-]*)$/.exec(context.before)[1];
+        const uidPartial = completion.thingUidPartial(extension, context);
+        if (uidPartial !== null) {
           return {
             isIncomplete: false,
             items: completion.thingUidCompletions(
-              partial,
+              uidPartial,
               this.thingTypes.bindingIds,
               (b) => this.thingTypes.uidsForBinding(b)
             )
@@ -9922,8 +10031,7 @@ var require_Server = __commonJS({
           this.log(`hover: document not found: ${params.textDocument.uri}`);
           return null;
         }
-        const text = document.getText();
-        const word = hover.wordAt(text, params.position);
+        const word = hover.wordAt(document, params.position);
         if (!word) {
           return null;
         }
@@ -9940,16 +10048,16 @@ var require_Server = __commonJS({
        * Items that exist only on the openHAB instance (no local definition)
        * return null — there is no file to jump to.
        */
-      getDefinition(params) {
+      async getDefinition(params) {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
           return null;
         }
-        const word = hover.wordAt(document.getText(), params.position);
+        const word = hover.wordAt(document, params.position);
         if (!word) {
           return null;
         }
-        const index = this.getIndex();
+        const index = await this.readyIndex();
         const def = index && index.get(word);
         if (!def) {
           return null;
@@ -9970,12 +10078,12 @@ var require_Server = __commonJS({
        * References: every usage of the item under the cursor across the
        * worktree's openHAB files. `includeDeclaration` adds the definition.
        */
-      getReferences(params) {
+      async getReferences(params) {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
           return [];
         }
-        const word = hover.wordAt(document.getText(), params.position);
+        const word = hover.wordAt(document, params.position);
         if (!word) {
           return [];
         }
@@ -9986,7 +10094,7 @@ var require_Server = __commonJS({
         const extraFiles = this.openDocumentPaths();
         const locations = findReferencesInWorktree(rootDir, word, { extraFiles });
         if (params.context?.includeDeclaration) {
-          const index = this.getIndex();
+          const index = await this.readyIndex();
           const def = index && index.get(word);
           if (def) {
             locations.push({ uri: def.uri, range: def.range });
@@ -9999,17 +10107,17 @@ var require_Server = __commonJS({
        * known item (locally defined or present on the openHAB instance).
        * Returns the word's range, or null to reject the rename.
        */
-      prepareRename(params) {
+      async prepareRename(params) {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
           return null;
         }
-        const at = hover.wordRangeAt(document.getText(), params.position);
+        const at = hover.wordRangeAt(document, params.position);
         if (!at || !NAME_RE.test(at.word)) {
           return null;
         }
         const word = at.word;
-        const index = this.getIndex();
+        const index = await this.readyIndex();
         const known = index && index.has(word) || this.store.items.has(word);
         if (!known) {
           return null;
@@ -10022,12 +10130,12 @@ var require_Server = __commonJS({
        * running openHAB instance is not renamed (that would need a REST call
        * and is a deliberate non-goal for now).
        */
-      rename(params) {
+      async rename(params) {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
           return null;
         }
-        const word = hover.wordAt(document.getText(), params.position);
+        const word = hover.wordAt(document, params.position);
         const newName = params.newName;
         if (!word || !NAME_RE.test(newName)) {
           return null;
@@ -10038,7 +10146,7 @@ var require_Server = __commonJS({
         }
         const extraFiles = this.openDocumentPaths();
         const locations = findReferencesInWorktree(rootDir, word, { extraFiles });
-        const index = this.getIndex();
+        const index = await this.readyIndex();
         const def = index && index.get(word);
         if (def) {
           locations.push({ uri: def.uri, range: def.range });
@@ -10145,13 +10253,14 @@ var require_Server = __commonJS({
        * Code actions: run rule, send command to an item, create item from
        * a channel. See codeActions.js for the position rules.
        */
-      getCodeActions(params) {
+      async getCodeActions(params) {
         const document = this.documents.get(params.textDocument.uri);
         if (!document) {
           return [];
         }
         const extension = extensionOf(params.textDocument.uri);
-        return codeActionsAt(document.getText(), extension, params, {
+        await this.readyIndex();
+        return codeActionsAt(document, extension, params, {
           itemFor: (name) => this.store.items.get(name),
           isKnownItem: (name) => this.isKnownItem(name),
           channelsOf: (thingUID) => this.things.channelsOf(thingUID)
@@ -10241,7 +10350,7 @@ var require_Server = __commonJS({
        * (tag → [{file, line}], for position-aware diagnostics: a tag used
        * only on the line being validated is NOT "project-known").
        */
-      rescanUsedTags() {
+      async rescanUsedTags() {
         const rootDir = this.rootDir;
         if (!rootDir) {
           return;
@@ -10250,36 +10359,42 @@ var require_Server = __commonJS({
         const usages = /* @__PURE__ */ new Map();
         const TAG_LIST_RE = /"[^"]*"(?:\s*<[^>]*>)?\s*\[([^\]]*)\]/g;
         const STRING_RE = /"([^"]*)"|'([^']*)'/g;
-        for (const file of collectItemsFiles(rootDir)) {
-          let text;
-          try {
-            text = fs.readFileSync(file, "utf8");
-          } catch {
-            continue;
-          }
-          const lines = text.split(/\r?\n/);
-          for (let lineNo = 0; lineNo < lines.length; lineNo++) {
-            const line = lines[lineNo];
-            TAG_LIST_RE.lastIndex = 0;
-            let m;
-            while ((m = TAG_LIST_RE.exec(line)) !== null) {
-              if (m[0].includes("=")) {
-                continue;
+        const files = collectItemsFiles(rootDir);
+        const BATCH = 16;
+        for (let i = 0; i < files.length; i += BATCH) {
+          await Promise.all(
+            files.slice(i, i + BATCH).map(async (file) => {
+              let text;
+              try {
+                text = await fs.promises.readFile(file, "utf8");
+              } catch {
+                return;
               }
-              STRING_RE.lastIndex = 0;
-              let s;
-              while ((s = STRING_RE.exec(m[0])) !== null) {
-                const tag = s[1] ?? s[2];
-                if (tag) {
-                  tags.add(tag);
-                  if (!usages.has(tag)) {
-                    usages.set(tag, []);
+              const lines = text.split(/\r?\n/);
+              for (let lineNo = 0; lineNo < lines.length; lineNo++) {
+                const line = lines[lineNo];
+                TAG_LIST_RE.lastIndex = 0;
+                let m;
+                while ((m = TAG_LIST_RE.exec(line)) !== null) {
+                  if (m[0].includes("=")) {
+                    continue;
                   }
-                  usages.get(tag).push({ file, line: lineNo });
+                  STRING_RE.lastIndex = 0;
+                  let s;
+                  while ((s = STRING_RE.exec(m[0])) !== null) {
+                    const tag = s[1] ?? s[2];
+                    if (tag) {
+                      tags.add(tag);
+                      if (!usages.has(tag)) {
+                        usages.set(tag, []);
+                      }
+                      usages.get(tag).push({ file, line: lineNo });
+                    }
+                  }
                 }
               }
-            }
-          }
+            })
+          );
         }
         this._usedTags = tags;
         this._tagUsages = usages;
@@ -10315,16 +10430,22 @@ var require_Server = __commonJS({
       scheduleValidation(document) {
         let validate = this.validators.get(document.uri);
         if (!validate) {
-          validate = debounce((doc) => this.validateDocument(doc), VALIDATION_DEBOUNCE_MS);
+          validate = debounce((doc) => this.validateSoon(doc), VALIDATION_DEBOUNCE_MS);
           this.validators.set(document.uri, validate);
         }
         validate(document);
       }
+      /** Fire-and-forget validation entry point (didOpen / didChange / reconnect). */
+      validateSoon(document) {
+        this.validateDocument(document).catch((error) => this.log(`validateDocument failed: ${error.message}`));
+      }
       /**
        * Publish diagnostics for unknown item references in an open document.
        * Runs on didOpen and debounced on didChange; cleared on didClose.
+       * Awaits the initial index scan first so `isKnownItem`/`isKnownTagAt`
+       * see the worktree's definitions (no false warnings during the scan).
        */
-      validateDocument(document) {
+      async validateDocument(document) {
         if (!document) {
           return;
         }
@@ -10332,10 +10453,10 @@ var require_Server = __commonJS({
         if (!OPENHAB_EXTENSIONS.includes(extension)) {
           return;
         }
+        await this.readyIndex();
         const text = document.getText();
         const found = findUnknownItemRefs(text, extension, (name) => this.isKnownItem(name));
         if (extension === "items") {
-          this.getIndex();
           let file = null;
           try {
             file = fileURLToPath(document.uri);

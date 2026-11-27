@@ -1,6 +1,5 @@
 /**
- * Item-name occurrence finder, shared by inlay hints (B3) and semantic
- * tokens (B4).
+ * Item-name occurrence finder, shared by inlay hints and semantic tokens.
  *
  * Unlike `references.js` (which searches for ONE name everywhere), this finds
  * EVERY item-name-shaped reference in a document in a single pass, using the

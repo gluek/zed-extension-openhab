@@ -10102,7 +10102,7 @@ var require_Server = __commonJS({
         }
       }
       /**
-       * Code actions (B6): run rule, send command to an item, create item from
+       * Code actions: run rule, send command to an item, create item from
        * a channel. See codeActions.js for the position rules.
        */
       getCodeActions(params) {
@@ -10118,7 +10118,7 @@ var require_Server = __commonJS({
         });
       }
       /**
-       * Execute a code-action command (B6). Commands that touch the running
+       * Execute a code-action command. Commands that touch the running
        * openHAB instance do a REST call; `createItemFromChannel` returns a
        * WorkspaceEdit (applied by the client) — Zed collects
        * `last_workspace_edits_by_language_server`, so returning the edit from

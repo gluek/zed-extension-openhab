@@ -1,5 +1,5 @@
 /**
- * Semantic-tag data and completions for `.items` files (B11).
+ * Semantic-tag data and completions for `.items` files.
  *
  * The `tag_list` is the `["Tag", …]` clause after the icon
  * (grammar: `tag_list: seq('[', commaSep($._oh_string), ']')`). Values are

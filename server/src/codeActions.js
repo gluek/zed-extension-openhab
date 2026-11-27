@@ -1,5 +1,5 @@
 /**
- * Code actions (B6), all backed by the openHAB REST API or a workspace edit:
+ * Code actions, all backed by the openHAB REST API or a workspace edit:
  *
  *  - `openhab.sendCommand` — on an item name in `.rules`/`.script`/`.sitemap`
  *    (or the definition in `.items`): POST /rest/items/{name} with the given

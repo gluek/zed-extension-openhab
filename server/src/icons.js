@@ -1,5 +1,5 @@
 /**
- * Icon completion data for `.items` files (B10).
+ * Icon completion data for `.items` files.
  *
  * The `item_icon` is the `<icon>` clause after the label
  * (`Switch X "label" <light>`; grammar: `item_icon: seq('<', field('name', $.identifier), '>')`).

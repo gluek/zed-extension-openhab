@@ -321,12 +321,12 @@ class Server {
                 items: completion.channelCompletions(partial, this.things.allChannels),
             }
         }
-        // `.items`: `<icon>` clause completion (B10).
+        // `.items`: `<icon>` clause completion.
         if (icons.isIconPosition(extension, context)) {
             const partial = /<([^>]*)$/.exec(context.before)[1]
             return { isIncomplete: false, items: icons.iconCompletions(partial) }
         }
-        // `.items`: `["…"]` semantic-tag completion (B11), plus tags already
+        // `.items`: `["…"]` semantic-tag completion, plus tags already
         // used in the worktree's .items files.
         if (semantictags.isTagPosition(extension, context)) {
             const partial = /\[[^\]=]*"([^"]*)$/.exec(context.before)[1]
@@ -605,7 +605,7 @@ class Server {
     }
 
     /**
-     * Code actions (B6): run rule, send command to an item, create item from
+     * Code actions: run rule, send command to an item, create item from
      * a channel. See codeActions.js for the position rules.
      */
     getCodeActions(params) {
@@ -622,7 +622,7 @@ class Server {
     }
 
     /**
-     * Execute a code-action command (B6). Commands that touch the running
+     * Execute a code-action command. Commands that touch the running
      * openHAB instance do a REST call; `createItemFromChannel` returns a
      * WorkspaceEdit (applied by the client) — Zed collects
      * `last_workspace_edits_by_language_server`, so returning the edit from
@@ -805,7 +805,7 @@ class Server {
         }
         const text = document.getText()
         const found = findUnknownItemRefs(text, extension, (name) => this.isKnownItem(name))
-        // `.items` additionally gets unknown-semantic-tag warnings (B11):
+        // `.items` additionally gets unknown-semantic-tag warnings:
         // known = ontology ∪ tags used elsewhere in the worktree ∪ tags on
         // live items from the REST cache.
         if (extension === 'items') {

@@ -97,7 +97,7 @@ These are deliberate; see the comments in `src/` for the reasoning.
   `didOpen`/`didChange`. The check only runs once the thing cache has loaded
   successfully, so an unreachable instance does not flag every channel; open
   documents are re-validated after (re)connect.
-- **Inlay hints with live state (B3).** `textDocument/inlayHint` returns the
+- **Inlay hints with live state.** `textDocument/inlayHint` returns the
   current state after every item-name occurrence in openHAB files
   (`src/itemPositions.js` finds the occurrences; only items present in the live
   cache get a hint). When the event stream changes an item, the server asks the
@@ -106,11 +106,11 @@ These are deliberate; see the comments in `src/` for the reasoning.
   vscode-languageserver 7.0 never populates `connection.client.capabilities`,
   so reading it there silently no-ops), so hints follow state changes without
   an edit.
-- **Semantic tokens (B4).** `textDocument/semanticTokens/full` marks item
+- **Semantic tokens.** `textDocument/semanticTokens/full` marks item
   references as `variable` and `.items` definition names as `property` +
   `declaration`, so Zed colors them differently from locals/keywords. Built
   with `SemanticTokensBuilder` (correct delta encoding).
-- **Code actions + executeCommand (B6).** `textDocument/codeAction` offers
+- **Code actions + executeCommand.** `textDocument/codeAction` offers
   `quickfix` actions at sensible positions (`src/codeActions.js`), and
   `workspace/executeCommand` runs them: `openhab.sendCommand` (POST
   `/rest/items/{name}` with a per-type command list) on item names in
@@ -124,7 +124,7 @@ These are deliberate; see the comments in `src/` for the reasoning.
   `apply_code_action` applies action edits but ignores executeCommand
   *results*. The commands are advertised in `executeCommandProvider.commands`,
   which Zed requires before executing.
-- **Icon + semantic-tag completion in `.items` (B10/B11).**
+- **Icon + semantic-tag completion in `.items`.**
   `src/icons.js` bundles the classic OH icon set (plus Iconify prefixes
   `mdi:`/`fa-solid:`/…) for the `<icon>` clause and the semantic-ontology tag
   list (`Equipment`, `Point`, `Measurement`, `Temperature`, `Lightbulb`, …)

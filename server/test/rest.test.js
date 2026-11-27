@@ -4,7 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert')
 const { mock } = require('node:test')
 
-const { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce } = require('../src/rest')
+const { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce, sendCommand, runRule } = require('../src/rest')
 
 test('normalizeBaseUrl: bare host gets http:// and the configured port', () => {
     assert.strictEqual(normalizeBaseUrl('localhost', 8080), 'http://localhost:8080')
@@ -95,5 +95,82 @@ test('debounce cancel() drops a pending call', () => {
         assert.strictEqual(calls, 0)
     } finally {
         mock.timers.reset()
+    }
+})
+
+test('sendCommand posts the command to the item endpoint with auth headers', async () => {
+    const calls = []
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async (url, opts = {}) => {
+        calls.push({ url: String(url), opts })
+        return { ok: true, status: 200 }
+    }
+    try {
+        const rest = { baseUrl: 'http://h:1/rest', authHeaders: { Authorization: 'Bearer t' } }
+        assert.deepStrictEqual(await sendCommand(rest, 'Kitchen_Light', 'ON'), { ok: true, status: 200 })
+        assert.strictEqual(calls.length, 1)
+        assert.strictEqual(calls[0].url, 'http://h:1/rest/items/Kitchen_Light')
+        assert.strictEqual(calls[0].opts.method, 'POST')
+        assert.strictEqual(calls[0].opts.body, 'ON')
+        assert.strictEqual(calls[0].opts.headers.Authorization, 'Bearer t')
+        assert.strictEqual(calls[0].opts.headers['Content-Type'], 'text/plain')
+    } finally {
+        globalThis.fetch = realFetch
+    }
+})
+
+test('sendCommand reports a failed POST without throwing', async () => {
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async () => ({ ok: false, status: 404 })
+    try {
+        const rest = { baseUrl: 'http://h:1/rest', authHeaders: {} }
+        assert.deepStrictEqual(await sendCommand(rest, 'Ghost', 'ON'), { ok: false, status: 404 })
+    } finally {
+        globalThis.fetch = realFetch
+    }
+})
+
+test('runRule resolves the display name to a UID, then POSTs runnow', async () => {
+    const calls = []
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async (url, opts = {}) => {
+        const u = String(url)
+        calls.push({ url: u, opts })
+        if (u.endsWith('/rules')) {
+            return { ok: true, status: 200, json: async () => [{ uid: 'rule-uid-1', name: 'Evening' }] }
+        }
+        return { ok: true, status: 200 }
+    }
+    try {
+        const rest = { baseUrl: 'http://h:1/rest', authHeaders: { Authorization: 'Bearer t' } }
+        assert.deepStrictEqual(await runRule(rest, 'Evening'), { ok: true, status: 200, uid: 'rule-uid-1' })
+        assert.strictEqual(calls[0].url, 'http://h:1/rest/rules')
+        assert.strictEqual(calls[1].url, 'http://h:1/rest/rules/rule-uid-1/runnow')
+        assert.strictEqual(calls[1].opts.method, 'POST')
+        assert.strictEqual(calls[1].opts.body, '{}')
+        assert.strictEqual(calls[1].opts.headers['Content-Type'], 'application/json')
+        assert.strictEqual(calls[1].opts.headers.Authorization, 'Bearer t')
+    } finally {
+        globalThis.fetch = realFetch
+    }
+})
+
+test('runRule falls back to the given name as the UID when the rule list is unavailable', async () => {
+    const calls = []
+    const realFetch = globalThis.fetch
+    globalThis.fetch = async (url, opts = {}) => {
+        const u = String(url)
+        calls.push(u)
+        if (u.endsWith('/rules')) {
+            throw new Error('offline')
+        }
+        return { ok: false, status: 404 }
+    }
+    try {
+        const rest = { baseUrl: 'http://h:1/rest', authHeaders: {} }
+        assert.deepStrictEqual(await runRule(rest, 'my-uid'), { ok: false, status: 404, uid: 'my-uid' })
+        assert.deepStrictEqual(calls, ['http://h:1/rest/rules', 'http://h:1/rest/rules/my-uid/runnow'])
+    } finally {
+        globalThis.fetch = realFetch
     }
 })

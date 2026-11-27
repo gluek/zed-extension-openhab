@@ -132,4 +132,59 @@ function debounce(fn, ms) {
     return debounced
 }
 
-module.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce }
+/**
+ * POST a command to an item on the running openHAB instance
+ * (`openhab.sendCommand`, invoked from a code action).
+ *
+ * @param {{baseUrl: string, authHeaders: object}} rest the instance's REST endpoint
+ * @param {string} itemName
+ * @param {string} command
+ * @returns {Promise<{ok: boolean, status: number}>}
+ */
+async function sendCommand(rest, itemName, command) {
+    const response = await fetch(`${rest.baseUrl}/items/${encodeURIComponent(itemName)}`, {
+        method: 'POST',
+        headers: { ...rest.authHeaders, 'Content-Type': 'text/plain' },
+        body: String(command),
+    })
+    return { ok: response.ok, status: response.status }
+}
+
+/**
+ * Run a rule on the running openHAB instance (`openhab.runRule`).
+ *
+ * A code action passes the `rule "…"` display name, but the endpoint takes
+ * the rule UID (DSL rule UIDs are auto-generated), so the name is resolved
+ * via `GET /rest/rules` first; a name that is already a UID matches
+ * directly. openHAB's endpoint is `/rules/{uid}/runnow` (there is no /run);
+ * it calls ruleManager.runNow(uid, considerConditions=false), i.e. the
+ * "when" triggers/conditions are NOT evaluated — only the "then" actions
+ * run, with a synthetic ExecutionEvent.
+ *
+ * @param {{baseUrl: string, authHeaders: object}} rest
+ * @param {string} rule rule display name or UID
+ * @returns {Promise<{ok: boolean, status: number, uid: string}>}
+ */
+async function runRule(rest, rule) {
+    let uid = rule
+    try {
+        const list = await fetch(`${rest.baseUrl}/rules`, { headers: rest.authHeaders })
+        if (list.ok) {
+            const rules = await list.json()
+            const found = Array.isArray(rules) && rules.find((r) => r.name === rule || r.uid === rule)
+            if (found) {
+                uid = found.uid
+            }
+        }
+    } catch {
+        // fall through and try the name as UID
+    }
+    const response = await fetch(`${rest.baseUrl}/rules/${encodeURIComponent(uid)}/runnow`, {
+        method: 'POST',
+        headers: { ...rest.authHeaders, 'Content-Type': 'application/json' },
+        body: '{}',
+    })
+    return { ok: response.ok, status: response.status, uid }
+}
+
+module.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce, sendCommand, runRule }

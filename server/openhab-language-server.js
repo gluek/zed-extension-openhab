@@ -7648,7 +7648,35 @@ var require_rest = __commonJS({
       };
       return debounced;
     }
-    module2.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce };
+    async function sendCommand(rest, itemName, command) {
+      const response = await fetch(`${rest.baseUrl}/items/${encodeURIComponent(itemName)}`, {
+        method: "POST",
+        headers: { ...rest.authHeaders, "Content-Type": "text/plain" },
+        body: String(command)
+      });
+      return { ok: response.ok, status: response.status };
+    }
+    async function runRule(rest, rule) {
+      let uid = rule;
+      try {
+        const list = await fetch(`${rest.baseUrl}/rules`, { headers: rest.authHeaders });
+        if (list.ok) {
+          const rules = await list.json();
+          const found = Array.isArray(rules) && rules.find((r) => r.name === rule || r.uid === rule);
+          if (found) {
+            uid = found.uid;
+          }
+        }
+      } catch {
+      }
+      const response = await fetch(`${rest.baseUrl}/rules/${encodeURIComponent(uid)}/runnow`, {
+        method: "POST",
+        headers: { ...rest.authHeaders, "Content-Type": "application/json" },
+        body: "{}"
+      });
+      return { ok: response.ok, status: response.status, uid };
+    }
+    module2.exports = { normalizeBaseUrl, baseUrlFor, authHeadersFor, SseParser, debounce, sendCommand, runRule };
   }
 });
 
@@ -9830,7 +9858,7 @@ var require_Server = __commonJS({
     var { ReferenceIndex } = require_references();
     var { ThingTypeStore } = require_thingTypes();
     var { ThingStore } = require_things();
-    var { debounce } = require_rest();
+    var { debounce, sendCommand, runRule } = require_rest();
     var DEFAULT_SETTINGS = {
       host: "localhost",
       port: 8080,
@@ -10389,10 +10417,13 @@ var require_Server = __commonJS({
       }
       /**
        * Execute a code-action command. Commands that touch the running
-       * openHAB instance do a REST call; `createItemFromChannel` returns a
-       * WorkspaceEdit (applied by the client) — Zed collects
-       * `last_workspace_edits_by_language_server`, so returning the edit from
-       * the executeCommand handler is enough for it to be applied.
+       * openHAB instance do a REST call — the endpoints live in rest.js
+       * (`sendCommand` / `runRule`), taking the store's REST endpoint and
+       * auth headers; this method only gates on connection state and logs.
+       * `createItemFromChannel` returns a WorkspaceEdit (applied by the
+       * client) — Zed collects `last_workspace_edits_by_language_server`, so
+       * returning the edit from the executeCommand handler is enough for it
+       * to be applied.
        */
       async executeCommand(params) {
         const [name, command] = params.arguments || [];
@@ -10405,13 +10436,10 @@ var require_Server = __commonJS({
             if (!name || !command || !NAME_RE.test(name)) {
               return null;
             }
-            const response = await fetch(`${this.store.baseUrl}/items/${encodeURIComponent(name)}`, {
-              method: "POST",
-              headers: { ...this.store.authHeaders, "Content-Type": "text/plain" },
-              body: String(command)
-            });
-            if (!response.ok) {
-              this.log(`sendCommand ${command} -> ${name} failed: HTTP ${response.status}`);
+            const rest = { baseUrl: this.store.baseUrl, authHeaders: this.store.authHeaders };
+            const result = await sendCommand(rest, name, command);
+            if (!result.ok) {
+              this.log(`sendCommand ${command} -> ${name} failed: HTTP ${result.status}`);
               return null;
             }
             this.log(`sent ${command} to ${name}`);
@@ -10424,25 +10452,10 @@ var require_Server = __commonJS({
               }
               return null;
             }
-            let uid = name;
-            try {
-              const list = await fetch(`${this.store.baseUrl}/rules`, { headers: this.store.authHeaders });
-              if (list.ok) {
-                const rules = await list.json();
-                const found = Array.isArray(rules) && rules.find((r) => r.name === name || r.uid === name);
-                if (found) {
-                  uid = found.uid;
-                }
-              }
-            } catch {
-            }
-            const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(uid)}/runnow`, {
-              method: "POST",
-              headers: { ...this.store.authHeaders, "Content-Type": "application/json" },
-              body: "{}"
-            });
-            if (!response.ok) {
-              this.log(`run rule ${name} (uid ${uid}) failed: HTTP ${response.status}`);
+            const rest = { baseUrl: this.store.baseUrl, authHeaders: this.store.authHeaders };
+            const result = await runRule(rest, name);
+            if (!result.ok) {
+              this.log(`run rule ${name} (uid ${result.uid}) failed: HTTP ${result.status}`);
               return null;
             }
             this.log(`ran rule ${name}`);

@@ -46,7 +46,7 @@ const { ItemIndex, NAME_RE } = require('./itemIndex')
 const { ReferenceIndex } = require('./references')
 const { ThingTypeStore } = require('./thingTypes')
 const { ThingStore } = require('./things')
-const { debounce } = require('./rest')
+const { debounce, sendCommand, runRule } = require('./rest')
 
 const DEFAULT_SETTINGS = {
     host: 'localhost',
@@ -709,10 +709,13 @@ class Server {
 
     /**
      * Execute a code-action command. Commands that touch the running
-     * openHAB instance do a REST call; `createItemFromChannel` returns a
-     * WorkspaceEdit (applied by the client) — Zed collects
-     * `last_workspace_edits_by_language_server`, so returning the edit from
-     * the executeCommand handler is enough for it to be applied.
+     * openHAB instance do a REST call — the endpoints live in rest.js
+     * (`sendCommand` / `runRule`), taking the store's REST endpoint and
+     * auth headers; this method only gates on connection state and logs.
+     * `createItemFromChannel` returns a WorkspaceEdit (applied by the
+     * client) — Zed collects `last_workspace_edits_by_language_server`, so
+     * returning the edit from the executeCommand handler is enough for it
+     * to be applied.
      */
     async executeCommand(params) {
         const [name, command] = params.arguments || []
@@ -725,13 +728,10 @@ class Server {
                 if (!name || !command || !NAME_RE.test(name)) {
                     return null
                 }
-                const response = await fetch(`${this.store.baseUrl}/items/${encodeURIComponent(name)}`, {
-                    method: 'POST',
-                    headers: { ...this.store.authHeaders, 'Content-Type': 'text/plain' },
-                    body: String(command),
-                })
-                if (!response.ok) {
-                    this.log(`sendCommand ${command} -> ${name} failed: HTTP ${response.status}`)
+                const rest = { baseUrl: this.store.baseUrl, authHeaders: this.store.authHeaders }
+                const result = await sendCommand(rest, name, command)
+                if (!result.ok) {
+                    this.log(`sendCommand ${command} -> ${name} failed: HTTP ${result.status}`)
                     return null
                 }
                 this.log(`sent ${command} to ${name}`)
@@ -744,33 +744,10 @@ class Server {
                     }
                     return null
                 }
-                // POST /rest/rules/{uid}/run takes the rule UID, not the
-                // `rule "…"` display name (DSL rule UIDs are auto-generated),
-                // so resolve name -> UID via GET /rest/rules first.
-                let uid = name
-                try {
-                    const list = await fetch(`${this.store.baseUrl}/rules`, { headers: this.store.authHeaders })
-                    if (list.ok) {
-                        const rules = await list.json()
-                        const found = Array.isArray(rules) && rules.find((r) => r.name === name || r.uid === name)
-                        if (found) {
-                            uid = found.uid
-                        }
-                    }
-                } catch {
-                    // fall through and try the name as UID
-                }
-                // openHAB's endpoint is /rules/{uid}/runnow (there is no /run);
-                // it calls ruleManager.runNow(uid, considerConditions=false),
-                // i.e. the "when" triggers/conditions are NOT evaluated — only
-                // the "then" actions run, with a synthetic ExecutionEvent.
-                const response = await fetch(`${this.store.baseUrl}/rules/${encodeURIComponent(uid)}/runnow`, {
-                    method: 'POST',
-                    headers: { ...this.store.authHeaders, 'Content-Type': 'application/json' },
-                    body: '{}',
-                })
-                if (!response.ok) {
-                    this.log(`run rule ${name} (uid ${uid}) failed: HTTP ${response.status}`)
+                const rest = { baseUrl: this.store.baseUrl, authHeaders: this.store.authHeaders }
+                const result = await runRule(rest, name)
+                if (!result.ok) {
+                    this.log(`run rule ${name} (uid ${result.uid}) failed: HTTP ${result.status}`)
                     return null
                 }
                 this.log(`ran rule ${name}`)
